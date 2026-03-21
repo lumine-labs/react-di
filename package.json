@@ -1,5 +1,5 @@
 {
-    "name": "react-di",
+    "name": "@lumelabs/react-di",
     "version": "0.1.1",
     "description": "Non-reactive dependency injection library for React built on top of tsyringe with immutable module scopes.",
     "license": "MIT",
