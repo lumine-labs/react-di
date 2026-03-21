@@ -1,26 +1,43 @@
-﻿import {
+import {
     type DependencyContainer,
-    Lifecycle,
-    isClassProvider,
-    isFactoryProvider,
-    isTokenProvider,
-    isValueProvider,
-} from "tsyringe"
-import { type Provider, type ProviderScope } from "./types"
+    Scope as TsLifecycle,
+    type InjectionToken,
+    type RegistrationOptions,
+    SingletonFactory,
+    ScopedFactory,
+} from "../aliases/index.js"
+import { type FactoryDependency, type Provider, type Scope } from "./types.js"
 
-function mapScope(scope: ProviderScope): Lifecycle {
+function mapScope(scope: Scope): RegistrationOptions["lifecycle"] {
     switch (scope) {
         case "singleton":
-            return Lifecycle.Singleton
+            return TsLifecycle.Singleton
         case "transient":
-            return Lifecycle.Transient
+            return TsLifecycle.Transient
         case "containerScoped":
-            return Lifecycle.ContainerScoped
+            return TsLifecycle.ContainerScoped
         case "resolutionScoped":
-            return Lifecycle.ResolutionScoped
+            return TsLifecycle.ResolutionScoped
         default:
-            return Lifecycle.Singleton
+            return TsLifecycle.Singleton
     }
+}
+
+function isOptionalFactoryDependency(
+    dependency: FactoryDependency
+): dependency is { token: InjectionToken<any>; optional: true } {
+    return typeof dependency === "object" && dependency !== null && "optional" in dependency && dependency.optional
+}
+
+function resolveFactoryDependencies(container: DependencyContainer, dependencies?: FactoryDependency[]): unknown[] {
+    if (!dependencies?.length) return []
+
+    return dependencies.map((dependency) => {
+        if (isOptionalFactoryDependency(dependency)) {
+            return container.isRegistered(dependency.token, true) ? container.resolve(dependency.token) : undefined
+        }
+        return container.resolve(dependency)
+    })
 }
 
 export function registerProvider(container: DependencyContainer, provider: Provider): void {
@@ -29,36 +46,46 @@ export function registerProvider(container: DependencyContainer, provider: Provi
         return
     }
 
+    if ("useValue" in provider) {
+        container.register(provider.provide, { useValue: provider.useValue })
+        return
+    }
+
+    if ("useExisting" in provider) {
+        container.register(provider.provide, { useToken: provider.useExisting })
+        return
+    }
+
     const scope = provider.scope ?? "singleton"
-    const entry = provider.provider
 
-    if (typeof entry === "function") {
-        container.register(provider.provide, entry, { lifecycle: mapScope(scope) })
+    if ("useClass" in provider) {
+        container.register(provider.provide, { useClass: provider.useClass }, { lifecycle: mapScope(scope) })
         return
     }
 
-    if (isValueProvider(entry)) {
-        container.register(provider.provide, entry)
-        return
-    }
+    if ("useFactory" in provider) {
+        const factory = (c: DependencyContainer) =>
+            provider.useFactory(c, ...resolveFactoryDependencies(c, provider.inject))
 
-    if (isFactoryProvider(entry)) {
-        if (scope !== "transient") {
-            throw new Error(
-                `registerProvider: scope "${scope}" is not supported for factory providers. Use "transient" or wrap factory with tsyringe caching helpers.`
-            )
+        if (scope === "transient") {
+            container.register(provider.provide, { useFactory: factory })
+            return
         }
 
-        container.register(provider.provide, entry)
-        return
-    }
+        if (scope === "singleton") {
+            container.register(provider.provide, { useFactory: SingletonFactory(factory) })
+            return
+        }
 
-    if (isClassProvider(entry) || isTokenProvider(entry)) {
-        container.register(provider.provide, entry as any, { lifecycle: mapScope(scope) })
-        return
-    }
+        if (scope === "containerScoped") {
+            container.register(provider.provide, { useFactory: ScopedFactory(factory) })
+            return
+        }
 
-    container.register(provider.provide, entry as any)
+        throw new Error(
+            'registerProvider: scope "resolutionScoped" is not supported for factory providers. Use "transient", "singleton", or "containerScoped".'
+        )
+    }
 }
 
 export function registerProviders(container: DependencyContainer, providers: Provider[]): void {

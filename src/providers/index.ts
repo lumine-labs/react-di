@@ -1,2 +1,1 @@
-export * from "./types"
-export * from "./providers"
+export { registerProvider, registerProviders } from "./providers.js"

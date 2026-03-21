@@ -20,23 +20,32 @@ Lightweight non-reactive DI for React on top of `tsyringe`.
 
 ## Core API
 
-- `ModuleProvider`: universal module provider (`attach`/`factory`/`scoped`) with `providers[]` + `onModuleInit`.
+- `ModuleProvider`: universal module provider (`root`/`attach`/`factory`/`scoped`) with `providers[]` + `onModuleInit`.
 - `useModule`: low-level immutable module resolution.
 - `useModuleContainer`: managed lifecycle wrapper around `useModule`.
 - `useResolve`, `useTryResolve`: resolve hooks.
+
+## Root mode
+
+```
+<ModuleProvider root providers={[...]} onModuleInit={(c) => { ... }}>
+  <App />
+</ModuleProvider>
+```
+
+- `root: true` creates factory via `tsyringe.container.createChildContainer()`.
+- `root` cannot be combined with `factory` or `container`.
 
 ## Provider definition
 
 - `Provider` can be a class constructor (default singleton).
 - Or explicit definition:
 
-```ts
+```
 {
-    provide: Token,
-        provider
-:
-    ServiceClass | {useClass} | {useToken} | {useValue} | {useFactory},
-        scope ? : "singleton" | "transient" | "containerScoped" | "resolutionScoped"
+  provide: Token,
+  provider: ServiceClass | { useClass } | { useToken } | { useValue } | { useFactory },
+  scope?: "singleton" | "transient" | "containerScoped" | "resolutionScoped"
 }
 ```
 
@@ -47,7 +56,7 @@ Lightweight non-reactive DI for React on top of `tsyringe`.
 ## Notes
 
 - `providers` are applied inside `useModule` while creating an owned container.
-- In `attach` mode, `providers`/`onModuleInit` are disallowed.
-- `useTryResolve` returns `undefined` only for direct `unregistered token` errors and rethrows other resolution errors.
+- In attach mode, `providers`/`onModuleInit` are disallowed.
+- `useTryResolve` returns `undefined` only for unregistered token errors and rethrows other resolution errors.
 - `IResolver.tryResolve` is recursive (walks parent chain).
 - `IResolver.resolveScoped` / `tryResolveScoped` are current-scope only.

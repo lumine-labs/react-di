@@ -1,10 +1,10 @@
-import React from "react"
-import { type DependencyContainer } from "tsyringe"
+import { createContext, useContext } from "react"
+import { type DependencyContainer } from "../aliases/index.js"
 
-export const ContainerContext = React.createContext<DependencyContainer | null>(null)
+export const ContainerContext = createContext<DependencyContainer | null>(null)
 
 export function useContainer(): DependencyContainer {
-    const container = React.useContext(ContainerContext)
+    const container = useContext(ContainerContext)
 
     if (!container) {
         throw new Error("useContainer: no container in context. Wrap with <ModuleProvider>.")

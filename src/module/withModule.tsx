@@ -1,0 +1,27 @@
+import React, { type ComponentType, type JSX } from "react"
+
+import { ModuleProvider } from "./ModuleProvider.js"
+import { type UseModuleParams } from "./types.js"
+
+export type WithModuleParams<P> = UseModuleParams | ((props: P) => UseModuleParams)
+
+export function withModule<P extends object>(
+    Component: ComponentType<P>,
+    moduleParams?: WithModuleParams<P>
+): ComponentType<P> {
+    function WithModuleComponent(props: P): JSX.Element {
+        const resolvedParams =
+            typeof moduleParams === "function" ? (moduleParams as (props: P) => UseModuleParams)(props) : moduleParams
+
+        return (
+            <ModuleProvider {...(resolvedParams ?? {})}>
+                <Component {...props} />
+            </ModuleProvider>
+        )
+    }
+
+    const displayName = Component.displayName || Component.name || "Component"
+    WithModuleComponent.displayName = `withModule(${displayName})`
+
+    return WithModuleComponent
+}

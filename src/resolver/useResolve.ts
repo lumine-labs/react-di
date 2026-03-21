@@ -1,12 +1,8 @@
 import React from "react"
-import { type InjectionToken } from "tsyringe"
-import { useContainer } from "../container/useContainer"
+import { type InjectionToken } from "../aliases/index.js"
 
-const UNREGISTERED_TOKEN_PREFIX = "Attempted to resolve unregistered dependency token:"
-
-function isUnregisteredDependencyError(error: unknown): boolean {
-    return error instanceof Error && error.message.startsWith(UNREGISTERED_TOKEN_PREFIX)
-}
+import { useContainer } from "../container/useContainer.js"
+import { tryResolve } from "../utils/di.js"
 
 export function useResolve<T>(token: InjectionToken<T>): T {
     const container = useContainer()
@@ -20,13 +16,6 @@ export function useTryResolve<T>(token: InjectionToken<T>): T | undefined {
     const container = useContainer()
 
     return React.useMemo(() => {
-        try {
-            return container.resolve(token)
-        } catch (error) {
-            if (isUnregisteredDependencyError(error)) {
-                return undefined
-            }
-            throw error
-        }
+        return tryResolve(container, token, true)
     }, [container, token])
 }

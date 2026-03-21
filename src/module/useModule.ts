@@ -1,95 +1,62 @@
-import React from "react"
-import { type DependencyContainer } from "tsyringe"
-import { ContainerContext } from "../container/useContainer"
-import { registerProviders } from "../providers/providers"
-import { type ModuleResolution, type UseModuleParams } from "./types"
+import { useContext, useEffect, useState } from "react"
+import { type DependencyContainer } from "../aliases/index.js"
 
-export function useModule(params?: UseModuleParams): ModuleResolution {
-    const parent = React.useContext(ContainerContext)
+import { type ModuleResolution, type UseModuleParams } from "./types.js"
+import { createModuleResolution } from "./module.js"
+import { ContainerContext } from "../container/useContainer.js"
+import { CleanupRegistry } from "../module-cleanup/cleanup-registry.js"
 
-    const [resolution] = React.useState(() => {
+export function useModuleResolution(params?: UseModuleParams): ModuleResolution {
+    const parent = useContext(ContainerContext)
+
+    const [resolution] = useState(() => {
         return createModuleResolution(parent, params)
     })
 
     return resolution
 }
 
-export function useModuleContainer(params?: UseModuleParams): DependencyContainer {
-    const resolution = useModule(params)
+export function useModule(params?: UseModuleParams): DependencyContainer {
+    const resolution = useModuleResolution(params)
 
-    React.useEffect(() => {
+    useEffect(() => {
         return () => cleanupModuleResolution(resolution)
     }, [])
 
     return resolution.container
 }
 
-export function createModuleResolution(parent: DependencyContainer | null, params?: UseModuleParams): ModuleResolution {
-    if (params?.container && (params?.onModuleInit || params?.providers)) {
-        throw new Error("useModule: `onModuleInit` and `providers` are not allowed in attach mode.")
-    }
-
-    const resolved = (() => {
-        if (params?.container) {
-            return { container: params.container, owned: false as const }
-        }
-
-        if (params?.factory) {
-            const container = params.factory()
-            if (!container) {
-                throw new Error("useModule: factory() returned falsy.")
-            }
-            return { container, owned: true as const }
-        }
-
-        if (!parent) {
-            throw new Error(
-                "useModule: no parent container in context. Provide `factory` for root or `container` to attach."
-            )
-        }
-
-        return { container: parent.createChildContainer(), owned: true as const }
-    })()
-
-    if (!resolved.owned) {
-        return { container: resolved.container, owned: false }
-    }
-
-    let cfgCleanup: (() => void) | undefined
-
+export function cleanupModuleResolution(resolution: ModuleResolution): void {
     try {
-        if (params?.providers?.length) {
-            registerProviders(resolved.container, params.providers)
-        }
-
-        const maybeCleanup = params?.onModuleInit?.(resolved.container)
-        cfgCleanup = typeof maybeCleanup === "function" ? maybeCleanup : undefined
+        resolution.cleanup?.()
     } catch (error) {
-        try {
-            resolved.container.dispose()
-        } catch {
-            // noop
-        }
-        throw error
+        console.error("module.cleanup", error)
     }
 
-    return {
-        container: resolved.container,
-        owned: true,
-        cfgCleanup,
+    if (resolution.owned) {
+        scheduleContainerDispose(resolution.container)
     }
 }
 
-export function cleanupModuleResolution(resolution: ModuleResolution): void {
+function scheduleContainerDispose(container: DependencyContainer): void {
+    setTimeout(() => {
+        void runScheduledCleanup(container)
+    }, 0)
+}
+
+async function runScheduledCleanup(container: DependencyContainer): Promise<void> {
     try {
-        resolution.cfgCleanup?.()
+        if (container.isRegistered(CleanupRegistry, false)) {
+            await container.resolve(CleanupRegistry).run()
+        }
     } catch (error) {
-        console.error("module.cfgCleanup", error)
+        console.error("module.cleanupRegistry", error)
     }
 
     try {
-        if (resolution.owned) {
-            resolution.container.dispose()
+        const result = container.dispose()
+        if (result instanceof Promise) {
+            await result
         }
     } catch (error) {
         console.error("module.dispose", error)

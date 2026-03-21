@@ -1,13 +1,14 @@
-import React from "react"
-import { ContainerContext } from "../container/useContainer"
-import { type UseModuleParams } from "./types"
-import { useModuleContainer } from "./useModule"
+import { type JSX, type ReactNode } from "react"
+
+import { type UseModuleParams } from "./types.js"
+import { useModule } from "./useModule.js"
+import { ContainerContext } from "../container/useContainer.js"
 
 export type ModuleProviderProps = UseModuleParams & {
-    children?: React.ReactNode
+    children?: ReactNode
 }
 
-export function ModuleProvider({ children, ...moduleParams }: ModuleProviderProps): React.JSX.Element {
-    const container = useModuleContainer(moduleParams)
+export function ModuleProvider({ children, ...moduleParams }: ModuleProviderProps): JSX.Element {
+    const container = useModule(moduleParams)
     return <ContainerContext.Provider value={container}>{children}</ContainerContext.Provider>
 }
