@@ -47,6 +47,9 @@
         "test": "vitest run",
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage",
+        "docs:dev": "vitepress dev docs",
+        "docs:build": "vitepress build docs",
+        "docs:preview": "vitepress preview docs",
         "prepack": "npm run build"
     },
     "peerDependencies": {
@@ -68,6 +71,7 @@
         "rimraf": "^6.1.3",
         "tsx": "^4.21.0",
         "typescript": "^5.9.3",
+        "vitepress": "^1.6.4",
         "vitest": "^4.1.0"
     }
 }
