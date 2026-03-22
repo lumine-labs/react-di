@@ -1,6 +1,6 @@
 {
     "name": "@lumelabs/react-di",
-    "version": "0.1.1",
+    "version": "0.1.0",
     "description": "Non-reactive dependency injection library for React built on top of tsyringe with immutable module scopes.",
     "license": "MIT",
     "author": "Egor Arkhipov (Lumelabs)",
