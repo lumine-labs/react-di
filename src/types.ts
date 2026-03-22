@@ -6,6 +6,7 @@ export type {
     ScopedModuleParams,
     UseModuleParams,
     ModuleResolution,
+    UseModuleResult,
 } from "./module/types.js"
 
 export type { ModuleProviderProps } from "./module/ModuleProvider.js"

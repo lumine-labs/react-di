@@ -1,7 +1,7 @@
 import React from "react"
 import { type InjectionToken } from "../aliases/index.js"
 
-import { useContainer } from "../container/useContainer.js"
+import { useContainer } from "../module/useModuleContext.js"
 import { tryResolve } from "../utils/di.js"
 
 export function useResolve<T>(token: InjectionToken<T>): T {

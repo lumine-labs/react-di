@@ -6,6 +6,7 @@ export type {
     ScopedModuleParams,
     UseModuleParams,
     ModuleResolution,
+    UseModuleResult,
     ModuleProviderProps,
     WithModuleParams,
 } from "./module/index.js"
@@ -13,8 +14,11 @@ export {
     createModuleResolution,
     resolveContainer,
     useModule,
-    useModuleResolution,
+    useModuleContext,
+    useModuleRebuild,
+    useContainer,
     cleanupModuleResolution,
+    ModuleContext,
     ModuleProvider,
     withModule,
 } from "./module/index.js"
@@ -23,8 +27,6 @@ export { registerProvider, registerProviders } from "./providers/index.js"
 
 export type { IResolver } from "./resolver/index.js"
 export { Resolver, useResolve, useTryResolve } from "./resolver/index.js"
-
-export { ContainerContext, useContainer } from "./container/index.js"
 
 export type { CleanupFn, CleanupMode, CleanupOptions } from "./module-cleanup/index.js"
 export { CleanupRegistry, useModuleCleanup } from "./module-cleanup/index.js"

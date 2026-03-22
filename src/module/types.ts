@@ -42,3 +42,10 @@ export type ModuleResolution = {
     owned: boolean
     cleanup?: () => void
 }
+
+export type UseModuleResult = {
+    container: DependencyContainer
+    owned: boolean
+    id: number
+    rebuild: () => void
+}
