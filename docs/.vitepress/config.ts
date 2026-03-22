@@ -2,23 +2,41 @@ import { defineConfig } from "vitepress"
 
 export default defineConfig({
     base: "/react-di/",
-    title: "react-di",
-    description: "Non-reactive dependency injection for React",
+    title: "@lumelabs/react-di",
+    description: "Scoped DI for React applications",
     themeConfig: {
         nav: [
-            { text: "Guide", link: "/guide/getting-started" },
+            { text: "Home", link: "/" },
+            { text: "Documentation", link: "/guide/getting-started" },
+            { text: "Examples", link: "/examples/" },
             { text: "API", link: "/api/" },
         ],
         sidebar: [
             {
-                text: "Guide",
+                text: "Getting Started",
                 items: [
+                    { text: "Reasoning", link: "/guide/reasoning" },
                     { text: "Getting Started", link: "/guide/getting-started" },
-                    { text: "ModuleProvider", link: "/guide/module-provider" },
-                    { text: "Providers", link: "/guide/providers" },
+                ],
+            },
+            {
+                text: "Modules",
+                items: [
+                    { text: "What is a Module", link: "/guide/modules" },
+                    { text: "Usage", link: "/guide/modules-usage" },
+                ],
+            },
+            {
+                text: "Providers",
+                items: [
+                    { text: "What is a Provider", link: "/guide/what-is-provider" },
                     { text: "Resolver", link: "/guide/resolver" },
                     { text: "Cleanup Registry", link: "/guide/cleanup-registry" },
                 ],
+            },
+            {
+                text: "Examples",
+                items: [{ text: "Overview", link: "/examples/" }],
             },
             {
                 text: "API",

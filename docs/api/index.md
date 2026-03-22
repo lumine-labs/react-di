@@ -4,7 +4,6 @@
 
 - `ModuleProvider`
 - `useModule`
-- `useModuleResolution`
 - `withModule`
 
 ## Resolution

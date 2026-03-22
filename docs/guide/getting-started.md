@@ -9,27 +9,44 @@ npm i @lumelabs/react-di
 ## Basic Usage
 
 ```tsx
-import { ModuleProvider, useResolve, type Provider } from "@lumelabs/react-di"
+import "reflect-metadata"
+import { Inject, Injectable, ModuleProvider, useResolve } from "@lumelabs/react-di"
 
-class CounterService {
-    value = 0
-    inc() {
-        this.value += 1
-        return this.value
+@Injectable()
+class ApiClient {
+    async get<T>(path: string): Promise<T> {
+        const response = await fetch(path)
+        if (!response.ok) {
+            throw new Error(`Request failed: ${response.status}`)
+        }
+        return (await response.json()) as T
     }
 }
 
-const providers: Provider[] = [CounterService]
+@Injectable()
+class UserAPI {
+    constructor(@Inject(ApiClient) private readonly apiClient: ApiClient) {}
 
-function Counter() {
-    const counter = useResolve(CounterService)
-    return <button onClick={() => counter.inc()}>Increment</button>
+    getUsers() {
+        return this.apiClient.get<{ id: number; name: string }[]>("/api/users")
+    }
+}
+
+function ExampleFeature() {
+    const userAPI = useResolve(UserAPI)
+
+    const loadUsers = async () => {
+        const users = await userAPI.getUsers()
+        console.log(users)
+    }
+
+    return <button onClick={loadUsers}>Load users</button>
 }
 
 export function App() {
     return (
-        <ModuleProvider root providers={providers}>
-            <Counter />
+        <ModuleProvider root providers={[ApiClient, UserAPI]}>
+            <ExampleFeature />
         </ModuleProvider>
     )
 }
@@ -37,5 +54,6 @@ export function App() {
 
 ## Notes
 
+- `useResolve` resolves dependency from current module container.
 - Module containers are immutable after mount.
 - If you need a full rebuild of module dependencies, remount with React `key`.
