@@ -3,6 +3,7 @@ dist
 dist_ssr
 node_modules
 build
+cache
 
 # Logs
 logs
