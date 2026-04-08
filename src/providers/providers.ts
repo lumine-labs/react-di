@@ -6,9 +6,9 @@ import {
     SingletonFactory,
     ScopedFactory,
 } from "../aliases/index.js"
-import { type FactoryDependency, type Provider, type Scope } from "./types.js"
+import { type FactoryDependency, type Provider, type ProviderScope } from "./types.js"
 
-function mapScope(scope: Scope): RegistrationOptions["lifecycle"] {
+function mapScope(scope: ProviderScope): RegistrationOptions["lifecycle"] {
     switch (scope) {
         case "singleton":
             return TsLifecycle.Singleton

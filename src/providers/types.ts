@@ -1,7 +1,7 @@
 import type { DependencyContainer, InjectionToken } from "../aliases/index.js"
 import type { Constructor } from "../utils/types.js"
 
-export type Scope = "singleton" | "transient" | "containerScoped" | "resolutionScoped"
+export type ProviderScope = "singleton" | "transient" | "containerScoped" | "resolutionScoped"
 
 export type OptionalFactoryDependency<T = unknown> = {
     token: InjectionToken<T>
@@ -13,7 +13,7 @@ export type FactoryDependency = InjectionToken<any> | OptionalFactoryDependency<
 export interface ClassProvider<T = any> {
     provide: InjectionToken<T>
     useClass: Constructor<T>
-    scope?: Scope
+    scope?: ProviderScope
     inject?: never
 }
 
@@ -27,7 +27,7 @@ export interface FactoryProvider<T = any> {
     provide: InjectionToken<T>
     useFactory: (container: DependencyContainer, ...args: any[]) => T
     inject?: FactoryDependency[]
-    scope?: Scope
+    scope?: ProviderScope
 }
 
 export interface ExistingProvider<T = any> {

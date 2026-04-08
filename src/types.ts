@@ -13,7 +13,7 @@ export type { ModuleProviderProps } from "./module/ModuleProvider.js"
 export type { WithModuleParams } from "./module/withModule.js"
 
 export type {
-    Scope,
+    ProviderScope,
     OptionalFactoryDependency,
     FactoryDependency,
     ClassProvider,

@@ -24,6 +24,16 @@ export {
 } from "./module/index.js"
 
 export { registerProvider, registerProviders } from "./providers/index.js"
+export type {
+    ProviderScope,
+    OptionalFactoryDependency,
+    FactoryDependency,
+    ClassProvider,
+    ValueProvider,
+    FactoryProvider,
+    ExistingProvider,
+    Provider,
+} from "./providers/types.js"
 
 export type { IResolver } from "./resolver/index.js"
 export { Resolver, useResolve, useTryResolve } from "./resolver/index.js"
