@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { Token, makeTokenizer } from "../../src/utils/token"
+import { Token, makeTokenizer } from "../../src/utils/token.js"
 
 describe("makeTokenizer", () => {
     it("creates isolated duplicate guards per tokenizer instance", () => {
@@ -36,6 +36,19 @@ describe("makeTokenizer", () => {
         const tokenB = tokenizeB("Shared")
 
         expect(tokenA).not.toBe(tokenB)
+    })
+
+    it("keeps duplicate guards isolated even for same namespace", () => {
+        const tokenizeA = makeTokenizer("shared-ns")
+        const tokenizeB = makeTokenizer("shared-ns")
+
+        const tokenA = tokenizeA("Service")
+        expect(() => tokenizeA("Service")).toThrowError(/already declared/)
+
+        const tokenB = tokenizeB("Service")
+        expect(tokenB).toBe(tokenA)
+
+        expect(() => tokenizeA("Service", { allowDuplicate: true })).not.toThrow()
     })
 })
 

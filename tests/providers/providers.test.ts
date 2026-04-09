@@ -140,4 +140,16 @@ describe("registerProviders", () => {
         expect(container.resolve(ServiceA)).toBeInstanceOf(ServiceA)
         expect(container.resolve(ServiceB)).toBeInstanceOf(ServiceB)
     })
+
+    it("keeps last registration when same token is provided multiple times", () => {
+        const container = Container.createChildContainer()
+        const token = Symbol.for("tests:providers:order-override")
+
+        registerProviders(container, [
+            { provide: token, useValue: "first" },
+            { provide: token, useValue: "second" },
+        ])
+
+        expect(container.resolve<string>(token)).toBe("second")
+    })
 })

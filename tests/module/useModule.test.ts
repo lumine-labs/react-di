@@ -104,4 +104,79 @@ describe("cleanupModuleResolution", () => {
         expect(errorSpy).toHaveBeenCalledTimes(1)
         errorSpy.mockRestore()
     })
+
+    it("catches cleanup registry errors and still attempts dispose", async () => {
+        const { container } = createContainerMock({ withRegistry: true })
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+        ;(container as any).resolve.mockImplementation(() => {
+            throw new Error("registry failed")
+        })
+
+        cleanupModuleResolution({
+            container,
+            owned: true,
+        })
+
+        await vi.runAllTimersAsync()
+
+        expect((container as any).dispose).toHaveBeenCalledTimes(1)
+        expect(errorSpy).toHaveBeenCalled()
+        errorSpy.mockRestore()
+    })
+
+    it("catches dispose errors", async () => {
+        const { container } = createContainerMock({ withRegistry: false })
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+        ;(container as any).dispose.mockImplementation(() => {
+            throw new Error("dispose failed")
+        })
+
+        cleanupModuleResolution({
+            container,
+            owned: true,
+        })
+
+        await vi.runAllTimersAsync()
+
+        expect(errorSpy).toHaveBeenCalled()
+        errorSpy.mockRestore()
+    })
+
+    it("supports async dispose for owned modules", async () => {
+        const calls: string[] = []
+        let resolveDispose!: () => void
+
+        const disposeDone = new Promise<void>((resolve) => {
+            resolveDispose = resolve
+        })
+
+        const { container } = createContainerMock({ withRegistry: true })
+        ;(container as any).resolve.mockImplementation(() => ({
+            run: async () => {
+                calls.push("registry")
+            },
+        }))
+        ;(container as any).dispose.mockImplementation(() => {
+            calls.push("dispose:start")
+            return disposeDone.then(() => {
+                calls.push("dispose:end")
+            })
+        })
+
+        cleanupModuleResolution({
+            container,
+            owned: true,
+        })
+
+        await vi.runAllTimersAsync()
+        expect(calls).toEqual(["registry", "dispose:start"])
+
+        resolveDispose()
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(calls).toEqual(["registry", "dispose:start", "dispose:end"])
+    })
 })

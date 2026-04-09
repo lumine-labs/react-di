@@ -37,7 +37,7 @@ describe("CleanupRegistry", () => {
         expect(calls).toEqual(["B", "A"])
     })
 
-    it("runs parallel cleanups before serial cleanups", async () => {
+    it("runs serial cleanups before parallel cleanups", async () => {
         const registry = new CleanupRegistry()
         const calls: string[] = []
 
@@ -62,12 +62,12 @@ describe("CleanupRegistry", () => {
         const runPromise = registry.run()
         await Promise.resolve()
 
-        expect(calls).toEqual(["parallel:start"])
+        expect(calls).toEqual(["serial"])
 
         resolveParallel()
         await runPromise
 
-        expect(calls).toEqual(["parallel:start", "parallel:end", "serial"])
+        expect(calls).toEqual(["serial", "parallel:start", "parallel:end"])
     })
 
     it("isolates cleanup errors and continues execution", async () => {
@@ -120,5 +120,37 @@ describe("CleanupRegistry", () => {
 
         await registry.run()
         expect(cleanup).not.toHaveBeenCalled()
+    })
+
+    it("continues execution when both serial and parallel cleanups fail", async () => {
+        const registry = new CleanupRegistry()
+        const calls: string[] = []
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+        registry.add(() => {
+            calls.push("serial:ok")
+        })
+        registry.add(() => {
+            throw new Error("serial:fail")
+        })
+        registry.add(
+            async () => {
+                calls.push("parallel:ok")
+            },
+            { mode: "parallel" }
+        )
+        registry.add(
+            async () => {
+                throw new Error("parallel:fail")
+            },
+            { mode: "parallel" }
+        )
+
+        await registry.run()
+
+        expect(calls).toContain("serial:ok")
+        expect(calls).toContain("parallel:ok")
+        expect(errorSpy).toHaveBeenCalledTimes(2)
+        errorSpy.mockRestore()
     })
 })
