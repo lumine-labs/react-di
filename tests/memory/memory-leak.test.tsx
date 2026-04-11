@@ -137,7 +137,7 @@ describeWithGC("memory leak guards", () => {
                         HeavyServiceA,
                         {
                             provide: HeavyServiceB,
-                            useFactory: (_, serviceA: HeavyServiceA) => new HeavyServiceB(serviceA),
+                            useFactory: (serviceA: HeavyServiceA) => new HeavyServiceB(serviceA),
                             inject: [HeavyServiceA],
                         },
                     ]}
@@ -160,7 +160,7 @@ describeWithGC("memory leak guards", () => {
                         HeavyServiceA,
                         {
                             provide: HeavyServiceB,
-                            useFactory: (_, serviceA: HeavyServiceA) => new HeavyServiceB(serviceA),
+                            useFactory: (serviceA: HeavyServiceA) => new HeavyServiceB(serviceA),
                             inject: [HeavyServiceA],
                         },
                     ]}

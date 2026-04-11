@@ -62,7 +62,7 @@ describe("registerProvider", () => {
         const token = Symbol.for("tests:factory-with-deps")
         container.register(ServiceA, { useValue: new ServiceA() })
 
-        const factory = vi.fn((_, a: ServiceA, optional?: ServiceB) => ({ a, optional }))
+        const factory = vi.fn((a: ServiceA, optional?: ServiceB) => ({ a, optional }))
         registerProvider(container, {
             provide: token,
             useFactory: factory,

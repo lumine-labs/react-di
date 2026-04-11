@@ -39,7 +39,8 @@ describe("scoped module parent rebuild", () => {
                     providers={[
                         {
                             provide: TChildParentVersion,
-                            useFactory: (container) => container.resolve(ParentService).version,
+                            useFactory: (parentService: ParentService) => parentService.version,
+                            inject: [ParentService],
                         },
                     ]}
                 >

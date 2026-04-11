@@ -13,7 +13,7 @@ A provider is a registration rule that tells module container how to resolve a d
 - Constructor provider: register class directly.
 - `useClass`: map token to class.
 - `useValue`: map token to static value.
-- `useFactory`: build instance manually with container access.
+- `useFactory`: build instance manually using dependencies from `inject`.
 - `useExisting`: alias one token to another token.
 
 ## Scope behavior

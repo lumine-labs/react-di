@@ -64,8 +64,7 @@ export function registerProvider(container: DependencyContainer, provider: Provi
     }
 
     if ("useFactory" in provider) {
-        const factory = (c: DependencyContainer) =>
-            provider.useFactory(c, ...resolveFactoryDependencies(c, provider.inject))
+        const factory = (c: DependencyContainer) => provider.useFactory(...resolveFactoryDependencies(c, provider.inject))
 
         if (scope === "transient") {
             container.register(provider.provide, { useFactory: factory })

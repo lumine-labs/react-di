@@ -2,7 +2,7 @@ import { Container, type DependencyContainer } from "../aliases/index.js"
 
 import type { ModuleResolution, UseModuleParams } from "./types.js"
 import { registerProviders } from "../providers/index.js"
-import { DEFAULT_PROVIDERS } from "../providers/defaultProviders.js"
+import { createDefaultProviders } from "../providers/defaultProviders.js"
 
 export function createModuleResolution(parent: DependencyContainer | null, params?: UseModuleParams): ModuleResolution {
     validateParams(params)
@@ -20,7 +20,7 @@ export function createModuleResolution(parent: DependencyContainer | null, param
 
     try {
         const paramsProviders = params?.providers ?? []
-        const providers = [...DEFAULT_PROVIDERS, ...paramsProviders]
+        const providers = [...createDefaultProviders(container), ...paramsProviders]
         registerProviders(container, providers)
 
         const maybeCleanup = params?.onModuleInit?.(container)
