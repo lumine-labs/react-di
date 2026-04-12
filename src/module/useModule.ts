@@ -11,8 +11,7 @@ import {
 import { createModuleResolution } from "./module.js"
 import { ModuleContext } from "./useModuleContext.js"
 import { AsyncTeardown } from "../module-cleanup/async-teardown.js"
-import { useEvent } from "../internals/hooks/useEvent.js"
-import { useScheduleLayoutEffect } from "../internals/hooks/useScheduleLayoutEffect.js"
+import { useEvent, useScheduleLayoutEffect } from "@lumelabs/react-hooks"
 import {
     createModuleResolutionLifecycle,
     runModuleDestroyLifecycle,
