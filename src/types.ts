@@ -27,7 +27,7 @@ export type {
 } from "./providers/types.js"
 
 export type { IResolver } from "./resolver/resolver.js"
-export type { CleanupFn, CleanupMode, CleanupOptions } from "./module-cleanup/types.js"
+export type { CleanupFn } from "./module-cleanup/types.js"
 
 export type { Constructor } from "./utils/types.js"
 export type { TokenOptions, Token } from "./utils/token"

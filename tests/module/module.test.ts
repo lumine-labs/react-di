@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
 import { Container } from "../../src/aliases/index.js"
-import { CleanupRegistry } from "../../src/module-cleanup/cleanup-registry.js"
 import { Resolver } from "../../src/resolver/resolver.js"
 import { createModuleResolution } from "../../src/module/module.js"
 import { createModuleResolutionLifecycle, runModuleInitLifecycle } from "../../src/module/lifecycle.js"
@@ -36,7 +35,6 @@ describe("createModuleResolution", () => {
         runModuleInitLifecycle(resolution, lifecycle)
 
         expect(resolution.container.isRegistered(Resolver, false)).toBe(true)
-        expect(resolution.container.isRegistered(CleanupRegistry, false)).toBe(true)
     })
 
     it("returns provided container in inherit mode without owning it", () => {

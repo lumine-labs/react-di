@@ -10,7 +10,7 @@ import {
 } from "./types.js"
 import { createModuleResolution } from "./module.js"
 import { ModuleContext } from "./useModuleContext.js"
-import { CleanupRegistry } from "../module-cleanup/cleanup-registry.js"
+import { AsyncTeardown } from "../module-cleanup/async-teardown.js"
 import { useEvent } from "../internals/hooks/useEvent.js"
 import { useScheduleLayoutEffect } from "../internals/hooks/useScheduleLayoutEffect.js"
 import {
@@ -193,11 +193,11 @@ async function runScheduledCleanup(resolution: ModuleResolution, lifecycle: Modu
     const { container } = resolution
 
     try {
-        if (container.isRegistered(CleanupRegistry, false)) {
-            await container.resolve(CleanupRegistry).run()
+        if (container.isRegistered(AsyncTeardown, false)) {
+            await container.resolve(AsyncTeardown).run()
         }
     } catch (error) {
-        console.error("module.cleanupRegistry", error)
+        console.error("module.asyncTeardown", error)
     }
 
     runModuleDestroyLifecycle(resolution, lifecycle)

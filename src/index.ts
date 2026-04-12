@@ -41,8 +41,8 @@ export type {
 export type { IResolver } from "./resolver/index.js"
 export { Resolver, useResolve, useTryResolve } from "./resolver/index.js"
 
-export type { CleanupFn, CleanupMode, CleanupOptions } from "./module-cleanup/index.js"
-export { CleanupRegistry, useModuleCleanup } from "./module-cleanup/index.js"
+export type { CleanupFn } from "./module-cleanup/index.js"
+export { AsyncTeardown, useAsyncTeardown } from "./module-cleanup/index.js"
 
 export type { Constructor, TokenOptions } from "./utils/index.js"
 export { tryResolve, resolveOr, di, makeTokenizer, Token } from "./utils/index.js"
