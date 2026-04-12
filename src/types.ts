@@ -1,11 +1,14 @@
 export type {
-    ModuleInit,
+    ModuleHook,
+    ModuleHooks,
+    ModuleLifecycle,
     RootModuleParams,
     InheritModuleParams,
     FactoryModuleParams,
     ScopedModuleParams,
     UseModuleParams,
     ModuleResolution,
+    ModuleResolutionLifecycle,
     UseModuleResult,
 } from "./module/types.js"
 

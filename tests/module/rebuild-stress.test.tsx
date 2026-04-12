@@ -73,9 +73,9 @@ describe("rebuild stress", () => {
                     root
                     onModuleInit={() => {
                         initCount += 1
-                        return () => {
-                            cleanupCount += 1
-                        }
+                    }}
+                    onModuleDestroy={() => {
+                        cleanupCount += 1
                     }}
                 >
                     <RootControls />

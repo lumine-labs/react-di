@@ -8,6 +8,11 @@ import {
 } from "../aliases/index.js"
 import { type FactoryDependency, type Provider, type ProviderScope } from "./types.js"
 
+export function getProviderToken(provider: Provider): InjectionToken<any> {
+    if (typeof provider === "function") return provider
+    return provider.provide
+}
+
 function mapScope(scope: ProviderScope): RegistrationOptions["lifecycle"] {
     switch (scope) {
         case "singleton":

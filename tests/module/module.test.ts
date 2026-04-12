@@ -3,6 +3,8 @@ import { Container } from "../../src/aliases/index.js"
 import { CleanupRegistry } from "../../src/module-cleanup/cleanup-registry.js"
 import { Resolver } from "../../src/resolver/resolver.js"
 import { createModuleResolution } from "../../src/module/module.js"
+import { createModuleResolutionLifecycle, runModuleInitLifecycle } from "../../src/module/lifecycle.js"
+import type { ModuleLifecycle } from "../../src/module/types.js"
 
 class ParentService {
     readonly value = "parent"
@@ -12,11 +14,27 @@ class LocalService {
     readonly value = "local"
 }
 
+class LifecycleService implements ModuleLifecycle {
+    constructor(private readonly onInit: () => void) {}
+
+    onModuleInit(): void {
+        this.onInit()
+    }
+}
+
 describe("createModuleResolution", () => {
-    it("creates owned container in root mode and registers default providers", () => {
+    it("creates owned container in root mode", () => {
         const resolution = createModuleResolution(null, { root: true })
 
         expect(resolution.owned).toBe(true)
+    })
+
+    it("creates lifecycle plan and registers default providers for owned resolution", () => {
+        const resolution = createModuleResolution(null, { root: true })
+        const lifecycle = createModuleResolutionLifecycle(resolution, { root: true })
+
+        runModuleInitLifecycle(resolution, lifecycle)
+
         expect(resolution.container.isRegistered(Resolver, false)).toBe(true)
         expect(resolution.container.isRegistered(CleanupRegistry, false)).toBe(true)
     })
@@ -90,6 +108,12 @@ describe("createModuleResolution", () => {
             providers: [LocalService],
             onModuleInit,
         })
+        const lifecycle = createModuleResolutionLifecycle(resolution, {
+            root: true,
+            providers: [LocalService],
+            onModuleInit,
+        })
+        runModuleInitLifecycle(resolution, lifecycle)
 
         expect(resolution.container.resolve(LocalService)).toBeInstanceOf(LocalService)
         expect(onModuleInit).toHaveBeenCalledTimes(1)
@@ -103,23 +127,118 @@ describe("createModuleResolution", () => {
             root: true,
             providers: [{ provide: Resolver, useValue: customResolver }],
         })
+        const lifecycle = createModuleResolutionLifecycle(resolution, {
+            root: true,
+            providers: [{ provide: Resolver, useValue: customResolver }],
+        })
+        runModuleInitLifecycle(resolution, lifecycle)
 
         expect(resolution.container.resolve(Resolver)).toBe(customResolver)
     })
 
-    it("disposes owned container if onModuleInit throws", () => {
-        const owned = Container.createChildContainer()
-        const disposeSpy = vi.spyOn(owned, "dispose")
+    it("throws when module init lifecycle callback fails", () => {
+        const resolution = createModuleResolution(null, {
+            root: true,
+            onModuleInit: () => {
+                throw new Error("init failed")
+            },
+        })
+        const lifecycle = createModuleResolutionLifecycle(resolution, {
+            root: true,
+            onModuleInit: () => {
+                throw new Error("init failed")
+            },
+        })
 
-        expect(() =>
-            createModuleResolution(null, {
-                factory: () => owned,
-                onModuleInit: () => {
-                    throw new Error("init failed")
-                },
-            })
-        ).toThrowError("init failed")
+        expect(() => runModuleInitLifecycle(resolution, lifecycle)).toThrowError("init failed")
+    })
 
-        expect(disposeSpy).toHaveBeenCalledTimes(1)
+    it("runs init lifecycle for repeated provider tokens by registration occurrence", () => {
+        const calls: string[] = []
+        const TOKEN = Symbol("MULTI_TOKEN")
+        const MIDDLE_TOKEN = Symbol("MIDDLE_TOKEN")
+
+        const first: ModuleLifecycle = {
+            onModuleInit: () => {
+                calls.push("first")
+            },
+        }
+        const middle: ModuleLifecycle = {
+            onModuleInit: () => {
+                calls.push("middle")
+            },
+        }
+        const second: ModuleLifecycle = {
+            onModuleInit: () => {
+                calls.push("second")
+            },
+        }
+
+        const resolution = createModuleResolution(null, {
+            root: true,
+            providers: [
+                { provide: TOKEN, useValue: first },
+                { provide: MIDDLE_TOKEN, useValue: middle },
+                { provide: TOKEN, useValue: second },
+            ],
+        })
+        const lifecycle = createModuleResolutionLifecycle(resolution, {
+            root: true,
+            providers: [
+                { provide: TOKEN, useValue: first },
+                { provide: MIDDLE_TOKEN, useValue: middle },
+                { provide: TOKEN, useValue: second },
+            ],
+        })
+
+        runModuleInitLifecycle(resolution, lifecycle)
+
+        expect(calls).toEqual(["first", "middle", "second"])
+    })
+
+    it("does not run lifecycle for useExisting alias provider", () => {
+        const onInit = vi.fn()
+        const Alias = Symbol("Alias")
+
+        const parentResolution = createModuleResolution(null, {
+            root: true,
+            providers: [{ provide: LifecycleService, useValue: new LifecycleService(onInit) }],
+        })
+        const parentLifecycle = createModuleResolutionLifecycle(parentResolution, {
+            root: true,
+            providers: [{ provide: LifecycleService, useValue: new LifecycleService(onInit) }],
+        })
+        runModuleInitLifecycle(parentResolution, parentLifecycle)
+
+        const childResolution = createModuleResolution(parentResolution.container, {
+            providers: [{ provide: Alias, useExisting: LifecycleService }],
+        })
+        const childLifecycle = createModuleResolutionLifecycle(childResolution, {
+            providers: [{ provide: Alias, useExisting: LifecycleService }],
+        })
+        runModuleInitLifecycle(childResolution, childLifecycle)
+
+        expect(onInit).toHaveBeenCalledTimes(1)
+        expect(childResolution.container.resolve(Alias)).toBe(parentResolution.container.resolve(LifecycleService))
+    })
+
+    it("runs lifecycle for useValue providers with lifecycle methods", () => {
+        const onInit = vi.fn()
+        const ValueToken = Symbol("ValueToken")
+
+        const instance = new LifecycleService(onInit)
+        const resolution = createModuleResolution(null, {
+            root: true,
+            providers: [{ provide: ValueToken, useValue: instance }],
+        })
+        const lifecycle = createModuleResolutionLifecycle(resolution, {
+            root: true,
+            providers: [{ provide: ValueToken, useValue: instance }],
+        })
+
+        runModuleInitLifecycle(resolution, lifecycle)
+
+        expect(onInit).toHaveBeenCalledTimes(1)
+        expect(resolution.container.resolve(ValueToken)).toBe(instance)
     })
 })

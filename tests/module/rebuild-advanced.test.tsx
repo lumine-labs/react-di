@@ -57,8 +57,8 @@ describe("module rebuild advanced", () => {
         factoryCalls = 0
     })
 
-    it("runs previous module cleanup before replacing module on rebuild", () => {
-        const cleanupCalls: number[] = []
+    it("runs previous module unmount before replacing module on rebuild", () => {
+        const unmountCalls: number[] = []
         let initVersion = 0
 
         function Probe() {
@@ -72,8 +72,9 @@ describe("module rebuild advanced", () => {
                 root
                 onModuleInit={() => {
                     initVersion += 1
-                    const current = initVersion
-                    return () => cleanupCalls.push(current)
+                }}
+                onModuleUnmount={() => {
+                    unmountCalls.push(initVersion)
                 }}
             >
                 <Probe />
@@ -87,14 +88,14 @@ describe("module rebuild advanced", () => {
         })
 
         expect(screen.getByTestId("id").textContent).toBe("1")
-        expect(cleanupCalls).toEqual([1])
+        expect(unmountCalls).toEqual([1])
 
         act(() => {
             rebuildRoot?.()
         })
 
         expect(screen.getByTestId("id").textContent).toBe("2")
-        expect(cleanupCalls).toEqual([1, 2])
+        expect(unmountCalls).toEqual([1, 2])
     })
 
     it("creates a fresh factory container on each rebuild", () => {

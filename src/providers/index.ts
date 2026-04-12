@@ -1,1 +1,1 @@
-export { registerProvider, registerProviders } from "./providers.js"
+export { getProviderToken, registerProvider, registerProviders } from "./providers.js"

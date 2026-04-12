@@ -1,11 +1,14 @@
 export type {
-    ModuleInit,
+    ModuleHook,
+    ModuleHooks,
+    ModuleLifecycle,
     RootModuleParams,
     InheritModuleParams,
     FactoryModuleParams,
     ScopedModuleParams,
     UseModuleParams,
     ModuleResolution,
+    ModuleResolutionLifecycle,
     UseModuleResult,
 } from "./types.js"
 export { createModuleResolution, resolveContainer } from "./module.js"

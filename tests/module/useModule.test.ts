@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { CleanupRegistry } from "../../src/module-cleanup/cleanup-registry.js"
 import { cleanupModuleResolution } from "../../src/module/useModule.js"
 import type { DependencyContainer } from "../../src/aliases/index.js"
+import type { ModuleResolutionLifecycle } from "../../src/module/types.js"
 
 function createContainerMock({
     withRegistry = true,
@@ -34,7 +35,7 @@ describe("cleanupModuleResolution", () => {
         vi.useRealTimers()
     })
 
-    it("runs init cleanup immediately and schedules registry/dispose for owned modules", async () => {
+    it("runs unmount immediately and schedules destroy/registry/dispose for owned modules", async () => {
         const calls: string[] = []
         const { container, run } = createContainerMock({ withRegistry: true })
         run.mockImplementation(async () => {
@@ -47,16 +48,24 @@ describe("cleanupModuleResolution", () => {
         cleanupModuleResolution({
             container,
             owned: true,
-            cleanup: () => {
-                calls.push("init-cleanup")
+        }, {
+            moduleHooks: {
+                onModuleUnmount: () => calls.push("module-unmount"),
+                onModuleDestroy: () => calls.push("module-destroy"),
             },
+            lifecycleInstances: [
+                {
+                    onModuleUnmount: () => calls.push("provider-unmount"),
+                    onModuleDestroy: () => calls.push("provider-destroy"),
+                },
+            ],
         })
 
-        expect(calls).toEqual(["init-cleanup"])
+        expect(calls).toEqual(["provider-unmount", "module-unmount"])
 
         await vi.runAllTimersAsync()
 
-        expect(calls).toEqual(["init-cleanup", "registry", "dispose"])
+        expect(calls).toEqual(["provider-unmount", "module-unmount", "registry", "provider-destroy", "module-destroy", "dispose"])
         expect((container as any).isRegistered).toHaveBeenCalledWith(CleanupRegistry, false)
         expect((container as any).dispose).toHaveBeenCalledTimes(1)
     })
@@ -64,10 +73,7 @@ describe("cleanupModuleResolution", () => {
     it("does not dispose inherited modules", async () => {
         const { container, run } = createContainerMock({ withRegistry: true })
 
-        cleanupModuleResolution({
-            container,
-            owned: false,
-        })
+        cleanupModuleResolution({ container, owned: false }, emptyLifecycle())
 
         await vi.runAllTimersAsync()
 
@@ -78,10 +84,7 @@ describe("cleanupModuleResolution", () => {
     it("still disposes when cleanup registry is not registered", async () => {
         const { container, run } = createContainerMock({ withRegistry: false })
 
-        cleanupModuleResolution({
-            container,
-            owned: true,
-        })
+        cleanupModuleResolution({ container, owned: true }, emptyLifecycle())
 
         await vi.runAllTimersAsync()
 
@@ -89,19 +92,29 @@ describe("cleanupModuleResolution", () => {
         expect((container as any).dispose).toHaveBeenCalledTimes(1)
     })
 
-    it("catches sync cleanup errors", () => {
+    it("catches sync module/provider unmount errors", () => {
         const { container } = createContainerMock({ withRegistry: false })
         const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
         cleanupModuleResolution({
             container,
             owned: false,
-            cleanup: () => {
-                throw new Error("cleanup failed")
+        }, {
+            moduleHooks: {
+                onModuleUnmount: () => {
+                    throw new Error("module unmount failed")
+                },
             },
+            lifecycleInstances: [
+                {
+                    onModuleUnmount: () => {
+                        throw new Error("provider unmount failed")
+                    },
+                },
+            ],
         })
 
-        expect(errorSpy).toHaveBeenCalledTimes(1)
+        expect(errorSpy).toHaveBeenCalledTimes(2)
         errorSpy.mockRestore()
     })
 
@@ -113,10 +126,7 @@ describe("cleanupModuleResolution", () => {
             throw new Error("registry failed")
         })
 
-        cleanupModuleResolution({
-            container,
-            owned: true,
-        })
+        cleanupModuleResolution({ container, owned: true }, emptyLifecycle())
 
         await vi.runAllTimersAsync()
 
@@ -133,15 +143,31 @@ describe("cleanupModuleResolution", () => {
             throw new Error("dispose failed")
         })
 
-        cleanupModuleResolution({
-            container,
-            owned: true,
-        })
+        cleanupModuleResolution({ container, owned: true }, emptyLifecycle())
 
         await vi.runAllTimersAsync()
 
         expect(errorSpy).toHaveBeenCalled()
         errorSpy.mockRestore()
+    })
+
+    it("runs destroy in LIFO order for providers", async () => {
+        const calls: string[] = []
+        const { container } = createContainerMock({ withRegistry: false })
+
+        cleanupModuleResolution({
+            container,
+            owned: true,
+        }, {
+            lifecycleInstances: [
+                { onModuleDestroy: () => calls.push("first") },
+                { onModuleDestroy: () => calls.push("second") },
+                { onModuleDestroy: () => calls.push("third") },
+            ],
+        })
+
+        await vi.runAllTimersAsync()
+        expect(calls).toEqual(["third", "second", "first"])
     })
 
     it("supports async dispose for owned modules", async () => {
@@ -165,10 +191,7 @@ describe("cleanupModuleResolution", () => {
             })
         })
 
-        cleanupModuleResolution({
-            container,
-            owned: true,
-        })
+        cleanupModuleResolution({ container, owned: true }, emptyLifecycle())
 
         await vi.runAllTimersAsync()
         expect(calls).toEqual(["registry", "dispose:start"])
@@ -180,3 +203,11 @@ describe("cleanupModuleResolution", () => {
         expect(calls).toEqual(["registry", "dispose:start", "dispose:end"])
     })
 })
+
+function emptyLifecycle(): ModuleResolutionLifecycle {
+    return {
+        moduleHooks: {},
+        lifecycleTokens: [],
+        lifecycleInstances: [],
+    }
+}
