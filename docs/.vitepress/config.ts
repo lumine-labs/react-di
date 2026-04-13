@@ -3,7 +3,7 @@ import { defineConfig } from "vitepress"
 export default defineConfig({
     base: "/react-di/",
     title: "@lumelabs/react-di",
-    description: "Scoped DI for React applications",
+    description: "Module-oriented Dependency Injection for React built on top of tsyringe",
     themeConfig: {
         nav: [
             { text: "Home", link: "/" },
@@ -24,14 +24,16 @@ export default defineConfig({
                 items: [
                     { text: "What is a Module", link: "/guide/modules" },
                     { text: "Usage", link: "/guide/modules-usage" },
+                    { text: "ModuleProvider", link: "/guide/module-provider" },
                 ],
             },
             {
                 text: "Providers",
                 items: [
                     { text: "What is a Provider", link: "/guide/what-is-provider" },
+                    { text: "Provider Registration", link: "/guide/providers" },
                     { text: "Resolver", link: "/guide/resolver" },
-                    { text: "Cleanup Registry", link: "/guide/cleanup-registry" },
+                    { text: "Async Teardown", link: "/guide/cleanup-registry" },
                 ],
             },
             {

@@ -6,7 +6,13 @@
 npm i @lumelabs/react-di
 ```
 
-## Basic Usage
+## Prerequisite
+
+```tsx
+import "reflect-metadata"
+```
+
+## Minimal Example
 
 ```tsx
 import "reflect-metadata"
@@ -52,8 +58,14 @@ export function App() {
 }
 ```
 
-## Notes
+## What Happens Here
 
-- `useResolve` resolves dependency from current module container.
-- Module containers are immutable after mount.
-- If you need a full rebuild of module dependencies, remount with React `key`.
+- `ModuleProvider` creates an owned root module container.
+- `providers` are registered into that container.
+- `useResolve` reads dependencies from current module context.
+
+## Next Steps
+
+- Read [What is a Module](/guide/modules).
+- Read [ModuleProvider](/guide/module-provider).
+- Read [Provider Registration](/guide/providers).

@@ -1,33 +1,46 @@
 # What is a Provider
 
-A provider is a registration rule that tells module container how to resolve a dependency token.
+A provider is a registration rule that tells the container how to resolve a token.
 
-## Why providers exist
+## Why Providers Matter
 
-- They describe how a dependency should be created or mapped.
-- They let you swap implementations per module scope.
-- They keep service graph explicit and testable.
+- They make service graphs explicit.
+- They enable local overrides in child modules.
+- They improve testability by allowing token-level replacement.
 
-## Provider forms
+## Provider Forms
 
-- Constructor provider: register class directly.
-- `useClass`: map token to class.
-- `useValue`: map token to static value.
-- `useFactory`: build instance manually using dependencies from `inject`.
-- `useExisting`: alias one token to another token.
+1. Constructor provider (`MyService`)
+2. `useClass` (`{ provide, useClass }`)
+3. `useValue` (`{ provide, useValue }`)
+4. `useFactory` (`{ provide, useFactory, inject? }`)
+5. `useExisting` (`{ provide, useExisting }`)
 
-## Scope behavior
+## Scope Behavior
 
-Provider scope controls instance lifetime:
+Scope controls instance lifetime:
 
 - `singleton`
 - `transient`
 - `containerScoped`
-- `resolutionScoped` (not supported for factory provider in this package)
+- `resolutionScoped` (except `useFactory`)
 
-## Where providers are used
+## Lifecycle and Providers
+
+Providers that resolve to objects implementing:
+
+- `onModuleInit`
+- `onModuleMount`
+- `onModuleUnmount`
+- `onModuleDestroy`
+
+are automatically included in provider lifecycle execution for owned modules.
+
+`useExisting` providers are excluded from lifecycle token collection to avoid duplicate lifecycle calls through alias tokens.
+
+## Where Providers Are Used
 
 - `ModuleProvider` accepts `providers` and registers them in module scope.
-- Child modules can override providers from parent module.
+- Child modules can shadow parent tokens.
 
-Next: see [Resolver](/guide/resolver) and [Cleanup Registry](/guide/cleanup-registry).
+Next: [Provider Registration](/guide/providers), [Resolver](/guide/resolver), [Async Teardown](/guide/cleanup-registry)

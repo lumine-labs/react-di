@@ -3,27 +3,30 @@ layout: home
 
 hero:
     name: "@lumelabs/react-di"
-    text: "Scoped DI for React applications"
-    tagline: "Immutable module scopes, explicit service wiring, and predictable cleanup lifecycle."
+    text: "Module-oriented DI for React"
+    tagline: "Built on tsyringe with nested module scopes, provider lifecycle, and explicit dependency graphs."
     actions:
         - theme: brand
           text: Documentation
           link: /guide/getting-started
         - theme: alt
+          text: API Overview
+          link: /api/
+        - theme: alt
           text: GitHub
           link: https://github.com/lumine-labs/react-di
 
 features:
-    - title: Module Scopes
-      details: Build dependency graphs as nested module containers with local overrides for feature widgets and pages.
-    - title: Constructor-first DI
-      details: Keep service dependencies explicit and composable with provider-based registration and class-oriented architecture.
-    - title: Predictable Teardown
-      details: Use CleanupRegistry to coordinate resource cleanup when React unmount order becomes hard to reason about.
+    - title: Scoped Module Tree
+      details: Compose DI as a tree of module containers and override dependencies locally without mutating parent modules.
+    - title: Provider Lifecycle
+      details: Run onModuleInit/onModuleMount/onModuleUnmount/onModuleDestroy for module-owned providers in deterministic order.
+    - title: Async Teardown
+      details: Coordinate async cleanup tasks with priority-based batching through AsyncTeardown.
     - title: React Integration
-      details: Use ModuleProvider and hooks, or wrap screens with withModule HOC when provider composition must stay declarative.
-    - title: OOP-friendly
-      details: Works naturally with class stores, API clients, and service layers where Context trees become noisy.
-    - title: Test-friendly
-      details: Override tokens in scoped modules and test components with isolated service graphs and deterministic behavior.
+      details: Use ModuleProvider, hooks, and withModule HOC while keeping React rendering concerns separate from DI concerns.
+    - title: Token Namespaces
+      details: Create strict namespaced tokens with makeTokenizer for large apps and shared package boundaries.
+    - title: Escape Hatches
+      details: Includes explicit UNSAFE container access for rare edge cases and infrastructure tooling.
 ---

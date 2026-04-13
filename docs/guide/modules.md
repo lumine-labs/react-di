@@ -1,45 +1,46 @@
 # What is a Module
 
-In `@lumelabs/react-di`, a module is a scoped dependency container.
+In `@lumelabs/react-di`, a module is a scoped dependency container with explicit ownership and lifecycle behavior.
 
-## Core idea
+## Core Idea
 
-- A module owns a local dependency graph.
-- Child modules can inherit from parent modules.
-- Child modules can override specific dependencies without touching parent graph.
+- Owned module: creates its own container and registers providers.
+- Inherited module: attaches to an external container without ownership.
+- Scoped module: creates child container from parent module in context.
 
-## Why it matters
+## Why It Matters
 
-- You can isolate feature widgets or page-level services.
-- You can keep a stable root graph and override only what a nested feature needs.
-- You can avoid deep context trees for service wiring.
+- Isolate page/feature/service graphs.
+- Override local dependencies without mutating parent graph.
+- Keep container boundaries explicit in large trees.
 
-## Module lifecycle
+## Module Lifecycle
 
-- Module is created once on mount.
-- Module container is immutable during its lifetime.
-- To rebuild a module graph, remount the module (for example using React `key`).
+- Init phase: module and provider `onModuleInit`.
+- Mount phase: module and provider `onModuleMount`.
+- Unmount phase: provider (LIFO) then module `onModuleUnmount`.
+- Destroy phase: async teardown, provider (LIFO), module `onModuleDestroy`, container `dispose`.
 
-## Parent and child modules
+## Container Ownership
 
-- Parent module provides shared dependencies.
-- Child module can resolve parent dependencies recursively.
-- Child module can register local providers and shadow parent tokens.
+- `owned: true` means this module is responsible for lifecycle + disposal.
+- `owned: false` means container is inherited and lifecycle for this resolution is skipped.
 
-## Register providers in module
+## Module Metadata
 
-```tsx
-<ModuleProvider root providers={[ApiClient, UserAPI]}>
-    <Feature />
-</ModuleProvider>
-```
+Every owned module registers `ModuleMetadata` with a string `id`.
 
-Read more on Providers [here](/guide/providers).
+- Custom id: pass `id` in module params.
+- Auto id: generated internally if not provided.
 
-## Typical use cases
+## System Providers
 
-- Feature-level API endpoints (preview vs production).
-- Isolated store instances for repeated widgets.
-- Local overrides for tests and stories.
+Owned modules automatically register:
 
-Next step: see [Modules / Usage](/guide/modules-usage).
+- `Resolver`
+- `ModuleMetadata`
+- `UNSAFE_CONTAINER_RESOLVER` (explicit escape hatch)
+
+`AsyncTeardown` is optional and should be added explicitly via `providers` when needed.
+
+Next: [Modules / Usage](/guide/modules-usage)

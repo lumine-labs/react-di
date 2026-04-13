@@ -2,27 +2,45 @@
 
 `ModuleProvider` creates or attaches a module container and exposes it via React context.
 
-## Modes
+## Props Overview
 
-- `root`: creates a new root child container.
-- `factory`: creates a new container using a custom factory.
-- `container`: inherits an existing container (no ownership).
-- scoped default: creates a child from parent container in context.
+- `root?: true`
+- `factory?: () => DependencyContainer`
+- `container?: DependencyContainer`
+- `id?: string` (owned modes only)
+- `providers?: Provider[]` (owned modes only)
+- `onModuleInit?: (container) => void` (owned modes only)
+- `onModuleMount?: (container) => void` (owned modes only)
+- `onModuleUnmount?: (container) => void` (owned modes only)
+- `onModuleDestroy?: (container) => void` (owned modes only)
+- `children?: ReactNode`
 
-## Example
+## Lifecycle Order
 
-```tsx
-<ModuleProvider root providers={[MyService]}>
-    <Feature />
-</ModuleProvider>
-```
+For owned module resolutions:
 
-## `withModule` HOC
+1. `module.onModuleInit`
+2. `providers.onModuleInit` (FIFO)
+3. `module.onModuleMount`
+4. `providers.onModuleMount` (FIFO)
+5. `providers.onModuleUnmount` (LIFO)
+6. `module.onModuleUnmount`
+7. `AsyncTeardown.run()` if `AsyncTeardown` is registered
+8. `providers.onModuleDestroy` (LIFO)
+9. `module.onModuleDestroy`
+10. `container.dispose()`
 
-For wrapper-style composition:
+## Hook Bridge Behavior
 
-```tsx
-import { withModule } from "@lumelabs/react-di"
+`onModule*` callbacks passed as props are wrapped with stable event handlers internally.
 
-const FeatureWithModule = withModule(Feature, { root: true, providers: [MyService] })
-```
+- Identity stays stable for lifecycle engine.
+- Closure values stay up to date with current React render state.
+
+## Context Access
+
+Inside a module subtree:
+
+- `useModuleContext()` gives `{ container, owned, id, rebuild }`.
+- `useContainer()` returns current container.
+- `useModuleRebuild()` rebuilds current module resolution.

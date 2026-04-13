@@ -1,20 +1,46 @@
-# Cleanup Registry
+# Async Teardown
 
-`CleanupRegistry` provides ordered teardown outside React effect ordering quirks.
+`AsyncTeardown` is an optional provider for ordered async cleanup at module destroy time.
 
-## Features
+> Note: This page keeps its legacy URL for backward compatibility.
 
-- Register cleanup callbacks with `add`.
-- Supports `serial` and `parallel` modes.
-- `run()` executes `parallel` first, then `serial` in reverse order.
-- Errors are isolated and logged.
+## Why It Exists
 
-## Hook
+- React unmount order can be difficult in complex trees.
+- Some resources need deterministic teardown priority.
+- Teardown can be async and should not crash module cleanup on failure.
+
+## Behavior
+
+- Register callbacks: `add(cleanup, priority?)`
+- Higher priority runs earlier.
+- Same-priority callbacks run in parallel (`Promise.all`).
+- Errors are caught and logged (`console.error`), cleanup continues.
+- `run()` is idempotent while active (reuses ongoing promise).
+
+## Register Provider
+
+`AsyncTeardown` is **not** auto-registered by default.
 
 ```tsx
-import { useModuleCleanup } from "@lumelabs/react-di"
-
-useModuleCleanup(container, () => {
-    socket.disconnect()
-})
+<ModuleProvider root providers={[AsyncTeardown, SocketService]}>
+    <Feature />
+</ModuleProvider>
 ```
+
+## Hook API
+
+Use `useAsyncTeardown(cleanup, priority?)` inside module subtree:
+
+```tsx
+import { useAsyncTeardown } from "@lumelabs/react-di"
+
+const off = useAsyncTeardown(() => {
+    socket.disconnect()
+}, 10)
+
+// Optional manual unregister before unmount:
+off()
+```
+
+The hook throws if `AsyncTeardown` is not resolvable in current module tree.

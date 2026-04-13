@@ -1,62 +1,31 @@
 # @lumelabs/react-di
 
-> ⚠️ **Experimental / Internal Use Only**
->
-> This configuration is primarily intended for personal and internal use.
-> It may change, break, or be restructured at any time without notice.
->
-> **Do not rely on this package for production or public projects unless you are prepared to maintain your own fork.**
->
-> **Issues and feature requests may be closed without response.**
+[Documentation (WIP)](https://lumine-labs.github.io/react-di/)
 
-Lightweight non-reactive DI for React on top of `tsyringe`.
+Dependency Injection for React, built on top of `tsyringe`.
 
-## Principles
+`@lumelabs/react-di` brings module-oriented DI into React applications: containers, module boundaries, subtree scoping, and predictable lifecycle orchestration for services.
 
-- DI is composition/lifecycle transport, not a reactive state layer.
-- Reactivity belongs to MobX/Effector/RxJS/etc.
-- Container scopes map to React subtree boundaries.
-- Module instances are immutable after mount. To rebuild module, remount provider (`key`).
+## Why This Library Exists
 
-## Core API
+React gives great UI composition, but complex apps still need explicit dependency graphs and controlled object lifecycles.  
+This package provides that missing layer without turning DI into a state manager.
 
-- `ModuleProvider`: universal module provider (`root`/`attach`/`factory`/`scoped`) with `providers[]` + `onModuleInit`.
-- `useModule`: low-level immutable module resolution.
-- `useModuleContainer`: managed lifecycle wrapper around `useModule`.
-- `useResolve`, `useTryResolve`: resolve hooks.
+## What It Focuses On
 
-## Root mode
+- Full DI container workflow in React context.
+- Modular architecture with nested module trees.
+- Provider registration ergonomics for real project structure.
+- Lifecycle-driven service orchestration at module level.
+- Compatibility with class-based OOP service design in frontend apps.
 
-```
-<ModuleProvider root providers={[...]} onModuleInit={(c) => { ... }}>
-  <App />
-</ModuleProvider>
-```
+## Philosophy
 
-- `root: true` creates factory via `tsyringe.container.createChildContainer()`.
-- `root` cannot be combined with `factory` or `container`.
+DI here is about dependency graph and lifecycle management.  
+Reactivity belongs to dedicated tools (MobX, RxJS, Zustand, etc.), not to the DI container itself.
 
-## Provider definition
+## Project Status
 
-- `Provider` can be a class constructor (default singleton).
-- Or explicit definition:
+Active development. API is evolving toward a stable `1.x` baseline.
 
-```
-{
-  provide: Token,
-  provider: ServiceClass | { useClass } | { useToken } | { useValue } | { useFactory },
-  scope?: "singleton" | "transient" | "containerScoped" | "resolutionScoped"
-}
-```
-
-- Default `scope` is `"singleton"`.
-- For `useFactory`, only `"transient"` is allowed directly (for singleton-like factory behavior use tsyringe caching
-  helpers).
-
-## Notes
-
-- `providers` are applied inside `useModule` while creating an owned container.
-- In attach mode, `providers`/`onModuleInit` are disallowed.
-- `useTryResolve` returns `undefined` only for unregistered token errors and rethrows other resolution errors.
-- `IResolver.tryResolve` is recursive (walks parent chain).
-- `IResolver.resolveScoped` / `tryResolveScoped` are current-scope only.
+Work in Progress docs: [lumine-labs.github.io/react-di](https://lumine-labs.github.io/react-di/)
