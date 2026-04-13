@@ -30,6 +30,10 @@ export { useContainer, useModuleContext, useModuleRebuild } from "./react/hooks/
 // ========================================
 
 export { Resolver } from "./core/providers/resolver/resolver.js"
+export {
+    ContainerResolver,
+    UNSAFE_CONTAINER_RESOLVER,
+} from "./core/providers/container-resolver/container-resolver.js"
 export { useResolve, useTryResolve } from "./react/hooks/useResolve.js"
 
 // Async Teardown

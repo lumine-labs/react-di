@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 import { Container } from "../../src/aliases/index.js"
+import {
+    ContainerResolver,
+    UNSAFE_CONTAINER_RESOLVER,
+} from "../../src/core/providers/container-resolver/container-resolver.js"
 import { Resolver } from "../../src/core/providers/resolver/resolver.js"
 import { createModuleResolution } from "../../src/core/module/resolution.js"
 import { createModuleResolutionLifecycle } from "../../src/core/module/lifecycle.js"
@@ -36,6 +40,8 @@ describe("createModuleResolution", () => {
         runModuleInitLifecycle(resolution, lifecycle)
 
         expect(resolution.container.isRegistered(Resolver, false)).toBe(true)
+        expect(resolution.container.isRegistered(UNSAFE_CONTAINER_RESOLVER, false)).toBe(true)
+        expect(resolution.container.resolve(UNSAFE_CONTAINER_RESOLVER)).toBeInstanceOf(ContainerResolver)
     })
 
     it("returns provided container in inherit mode without owning it", () => {
@@ -121,18 +127,26 @@ describe("createModuleResolution", () => {
 
     it("allows overriding default providers with explicit module providers", () => {
         const customResolver = { resolve: vi.fn(), tryResolve: vi.fn() } as any
+        const customContainerResolver = { unsafe_getContainer: vi.fn() } as any
 
         const resolution = createModuleResolution(null, {
             root: true,
-            providers: [{ provide: Resolver, useValue: customResolver }],
+            providers: [
+                { provide: Resolver, useValue: customResolver },
+                { provide: UNSAFE_CONTAINER_RESOLVER, useValue: customContainerResolver },
+            ],
         })
         const lifecycle = createModuleResolutionLifecycle(resolution, {
             root: true,
-            providers: [{ provide: Resolver, useValue: customResolver }],
+            providers: [
+                { provide: Resolver, useValue: customResolver },
+                { provide: UNSAFE_CONTAINER_RESOLVER, useValue: customContainerResolver },
+            ],
         })
         runModuleInitLifecycle(resolution, lifecycle)
 
         expect(resolution.container.resolve(Resolver)).toBe(customResolver)
+        expect(resolution.container.resolve(UNSAFE_CONTAINER_RESOLVER)).toBe(customContainerResolver)
     })
 
     it("throws when module init lifecycle callback fails", () => {
