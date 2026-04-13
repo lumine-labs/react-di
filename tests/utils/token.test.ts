@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { Token, makeTokenizer } from "../../src/utils/token.js"
+import { Token, makeTokenizer } from "../../src/core/tokenizer/tokenizer.js"
 
 describe("makeTokenizer", () => {
     it("creates isolated duplicate guards per tokenizer instance", () => {

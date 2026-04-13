@@ -2,8 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { useRef, useState } from "react"
 import { describe, expect, it } from "vitest"
 
-import { ModuleProvider } from "../../src/module/ModuleProvider.js"
-import { useResolve, useTryResolve } from "../../src/resolver/useResolve.js"
+import { ModuleProvider } from "../../src/react/providers/ModuleProvider"
+import { useResolve, useTryResolve } from "../../src/react/hooks/useResolve"
 
 class ServiceA {
     readonly value = "ok"
@@ -41,6 +41,23 @@ describe("resolver hooks", () => {
         )
 
         expect(screen.getByText("undefined")).toBeInTheDocument()
+    })
+
+    it("useTryResolve supports recursive=false and does not lookup parent module", () => {
+        function ChildProbe() {
+            const resolved = useTryResolve<ServiceA>(ServiceA, false)
+            return <div>{resolved === undefined ? "undefined-local" : "value"}</div>
+        }
+
+        render(
+            <ModuleProvider root providers={[ServiceA]}>
+                <ModuleProvider>
+                    <ChildProbe />
+                </ModuleProvider>
+            </ModuleProvider>
+        )
+
+        expect(screen.getByText("undefined-local")).toBeInTheDocument()
     })
 
     it("useTryResolve rethrows resolution errors for registered tokens", () => {
@@ -99,5 +116,22 @@ describe("resolver hooks", () => {
         expect(screen.getByTestId("same-ref").textContent).toBe("same")
         fireEvent.click(screen.getByRole("button", { name: "rerender" }))
         expect(screen.getByTestId("same-ref").textContent).toBe("same")
+    })
+
+    it("useResolve throws when recursive=false and token exists only in parent", () => {
+        function ChildProbe() {
+            useResolve(ServiceA, false)
+            return null
+        }
+
+        expect(() =>
+            render(
+                <ModuleProvider root providers={[ServiceA]}>
+                    <ModuleProvider>
+                        <ChildProbe />
+                    </ModuleProvider>
+                </ModuleProvider>
+            )
+        ).toThrowError(/current module container/)
     })
 })

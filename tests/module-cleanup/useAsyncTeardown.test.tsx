@@ -1,10 +1,10 @@
 import { render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
-import { ModuleProvider } from "../../src/module/ModuleProvider.js"
-import { AsyncTeardown } from "../../src/module-cleanup/async-teardown.js"
-import { useAsyncTeardown } from "../../src/module-cleanup/useAsyncTeardown.js"
-import { useResolve } from "../../src/resolver/useResolve.js"
+import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
+import { AsyncTeardown } from "../../src/core/providers/async-teardown/async-teardown.js"
+import { useAsyncTeardown } from "../../src/react/hooks/useAsyncTeardown.js"
+import { useResolve } from "../../src/react/hooks/useResolve.js"
 
 describe("useAsyncTeardown", () => {
     it("returns off() to unsubscribe cleanup before teardown.run()", async () => {

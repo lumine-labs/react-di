@@ -1,9 +1,9 @@
 import { act, render } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import { ModuleProvider } from "../../src/module/ModuleProvider.js"
-import { useModuleContext } from "../../src/module/useModuleContext.js"
-import { useResolve } from "../../src/resolver/useResolve.js"
+import { ModuleProvider } from "../../src/react/providers/ModuleProvider"
+import { useModuleContext } from "../../src/react/hooks/useModuleContext"
+import { useResolve } from "../../src/react/hooks/useResolve"
 
 class HeavyService {
     // Large payload to make leaks visible in heap trends.

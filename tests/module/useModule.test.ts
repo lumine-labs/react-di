@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { AsyncTeardown } from "../../src/module-cleanup/async-teardown.js"
-import { cleanupModuleResolution } from "../../src/module/useModule.js"
+import { AsyncTeardown } from "../../src/core/providers/async-teardown/async-teardown.js"
+import { cleanupModuleResolution } from "../../src/react/hooks/useModule"
 import type { DependencyContainer } from "../../src/aliases/index.js"
-import type { ModuleResolutionLifecycle } from "../../src/module/types.js"
+import type { ModuleResolutionLifecycle } from "../../src/core/module/lifecycle.types.js"
 
 function createContainerMock({
     withTeardown = true,
@@ -45,27 +45,37 @@ describe("cleanupModuleResolution", () => {
             calls.push("dispose")
         })
 
-        cleanupModuleResolution({
-            container,
-            owned: true,
-        }, {
-            moduleHooks: {
-                onModuleUnmount: () => calls.push("module-unmount"),
-                onModuleDestroy: () => calls.push("module-destroy"),
+        cleanupModuleResolution(
+            {
+                container,
+                owned: true,
             },
-            lifecycleInstances: [
-                {
-                    onModuleUnmount: () => calls.push("provider-unmount"),
-                    onModuleDestroy: () => calls.push("provider-destroy"),
+            {
+                moduleHooks: {
+                    onModuleUnmount: () => calls.push("module-unmount"),
+                    onModuleDestroy: () => calls.push("module-destroy"),
                 },
-            ],
-        })
+                lifecycleInstances: [
+                    {
+                        onModuleUnmount: () => calls.push("provider-unmount"),
+                        onModuleDestroy: () => calls.push("provider-destroy"),
+                    },
+                ],
+            }
+        )
 
         expect(calls).toEqual(["provider-unmount", "module-unmount"])
 
         await vi.runAllTimersAsync()
 
-        expect(calls).toEqual(["provider-unmount", "module-unmount", "teardown", "provider-destroy", "module-destroy", "dispose"])
+        expect(calls).toEqual([
+            "provider-unmount",
+            "module-unmount",
+            "teardown",
+            "provider-destroy",
+            "module-destroy",
+            "dispose",
+        ])
         expect((container as any).isRegistered).toHaveBeenCalledWith(AsyncTeardown, false)
         expect((container as any).dispose).toHaveBeenCalledTimes(1)
     })
@@ -96,23 +106,26 @@ describe("cleanupModuleResolution", () => {
         const { container } = createContainerMock({ withTeardown: false })
         const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-        cleanupModuleResolution({
-            container,
-            owned: false,
-        }, {
-            moduleHooks: {
-                onModuleUnmount: () => {
-                    throw new Error("module unmount failed")
-                },
+        cleanupModuleResolution(
+            {
+                container,
+                owned: false,
             },
-            lifecycleInstances: [
-                {
+            {
+                moduleHooks: {
                     onModuleUnmount: () => {
-                        throw new Error("provider unmount failed")
+                        throw new Error("module unmount failed")
                     },
                 },
-            ],
-        })
+                lifecycleInstances: [
+                    {
+                        onModuleUnmount: () => {
+                            throw new Error("provider unmount failed")
+                        },
+                    },
+                ],
+            }
+        )
 
         expect(errorSpy).toHaveBeenCalledTimes(2)
         errorSpy.mockRestore()
@@ -155,16 +168,19 @@ describe("cleanupModuleResolution", () => {
         const calls: string[] = []
         const { container } = createContainerMock({ withTeardown: false })
 
-        cleanupModuleResolution({
-            container,
-            owned: true,
-        }, {
-            lifecycleInstances: [
-                { onModuleDestroy: () => calls.push("first") },
-                { onModuleDestroy: () => calls.push("second") },
-                { onModuleDestroy: () => calls.push("third") },
-            ],
-        })
+        cleanupModuleResolution(
+            {
+                container,
+                owned: true,
+            },
+            {
+                lifecycleInstances: [
+                    { onModuleDestroy: () => calls.push("first") },
+                    { onModuleDestroy: () => calls.push("second") },
+                    { onModuleDestroy: () => calls.push("third") },
+                ],
+            }
+        )
 
         await vi.runAllTimersAsync()
         expect(calls).toEqual(["third", "second", "first"])

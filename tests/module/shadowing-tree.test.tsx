@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import { ModuleProvider } from "../../src/module/ModuleProvider.js"
-import { useResolve } from "../../src/resolver/useResolve.js"
+import { ModuleProvider } from "../../src/react/providers/ModuleProvider"
+import { useResolve } from "../../src/react/hooks/useResolve"
 
 const TShared = Symbol.for("tests.shadow.shared")
 const TRootOnly = Symbol.for("tests.shadow.root-only")

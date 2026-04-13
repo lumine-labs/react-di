@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { Container } from "../../src/aliases/index.js"
-import { resolveOr, tryResolve } from "../../src/utils/di.js"
+import { resolveOr, tryResolve } from "../../src/shared/container-utils.js"
 
 class ServiceA {}
 

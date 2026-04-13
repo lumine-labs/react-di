@@ -3,8 +3,8 @@ import React from "react"
 import { describe, expect, it } from "vitest"
 
 import { Container, type DependencyContainer } from "../../src/aliases/index.js"
-import { ModuleProvider } from "../../src/module/ModuleProvider.js"
-import { useModuleContext } from "../../src/module/useModuleContext.js"
+import { ModuleProvider } from "../../src/react/providers/ModuleProvider"
+import { useModuleContext } from "../../src/react/hooks/useModuleContext"
 
 let rebuildModule: (() => void) | null = null
 let lastContainer: DependencyContainer | null = null

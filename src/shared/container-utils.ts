@@ -1,5 +1,12 @@
 import type { DependencyContainer, InjectionToken } from "../aliases/index.js"
 
+export function resolve<T>(container: DependencyContainer, token: InjectionToken<T>, recursive = true): T {
+    if (!container.isRegistered(token, recursive)) {
+        throw new Error(`Token is not registered${recursive ? "" : " in current module container"}.`)
+    }
+    return container.resolve(token)
+}
+
 export function tryResolve<T>(
     container: DependencyContainer,
     token: InjectionToken<T>,
@@ -37,9 +44,4 @@ export function resolveOr<T, TFallback>(
     }
 
     return fallback
-}
-
-export const di = {
-    tryResolve,
-    resolveOr,
 }

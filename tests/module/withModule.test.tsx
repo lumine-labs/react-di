@@ -1,8 +1,8 @@
 import { act, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it } from "vitest"
-import { useModuleContext } from "../../src/module/useModuleContext.js"
-import { withModule } from "../../src/module/withModule.js"
-import { useResolve } from "../../src/resolver/useResolve.js"
+import { useModuleContext } from "../../src/react/hooks/useModuleContext"
+import { withModule } from "../../src/react/hoc/withModule"
+import { useResolve } from "../../src/react/hooks/useResolve"
 
 const TTitle = Symbol.for("tests.withModule.title")
 

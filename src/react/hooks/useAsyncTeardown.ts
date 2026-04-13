@@ -1,9 +1,8 @@
 import React from "react"
-
-import type { CleanupFn } from "./types.js"
-import { AsyncTeardown } from "./async-teardown.js"
 import { useEvent } from "@lumelabs/react-hooks"
-import { useResolve } from "../resolver/index.js"
+
+import { AsyncTeardown, type CleanupFn } from "../../core/providers/async-teardown/async-teardown.js"
+import { useResolve } from "./useResolve.js"
 
 export function useAsyncTeardown(cleanup: CleanupFn, priority?: number): () => void {
     const teardown = useResolve(AsyncTeardown)

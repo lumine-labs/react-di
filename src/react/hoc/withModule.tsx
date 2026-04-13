@@ -1,17 +1,16 @@
 import React, { type ComponentType, type JSX } from "react"
 
-import { ModuleProvider } from "./ModuleProvider.js"
-import { type UseModuleParams } from "./types.js"
+import type { ModuleResolutionParams } from "../../core/module/resolution.types.js"
+import { ModuleProvider } from "../providers/ModuleProvider.js"
 
-export type WithModuleParams<P> = UseModuleParams | ((props: P) => UseModuleParams)
+export type WithModuleParams<P> = ModuleResolutionParams | ((props: P) => ModuleResolutionParams)
 
 export function withModule<P extends object>(
     Component: ComponentType<P>,
     moduleParams?: WithModuleParams<P>
 ): ComponentType<P> {
     function WithModuleComponent(props: P): JSX.Element {
-        const resolvedParams =
-            typeof moduleParams === "function" ? (moduleParams as (props: P) => UseModuleParams)(props) : moduleParams
+        const resolvedParams = typeof moduleParams === "function" ? moduleParams(props) : moduleParams
 
         return (
             <ModuleProvider {...(resolvedParams ?? {})}>

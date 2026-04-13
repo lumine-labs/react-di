@@ -1,11 +1,8 @@
-import { createContext, useContext } from "react"
-import { type DependencyContainer } from "../aliases/index.js"
+import { useContext } from "react"
+import { type DependencyContainer } from "../../aliases/index.js"
+import { ModuleContext, type ModuleContextValue } from "../context/ModuleContext.js"
 
-import type { UseModuleResult } from "./types.js"
-
-export const ModuleContext = createContext<UseModuleResult | null>(null)
-
-export function useModuleContext(): UseModuleResult {
+export function useModuleContext(): ModuleContextValue {
     const value = useContext(ModuleContext)
 
     if (!value) {

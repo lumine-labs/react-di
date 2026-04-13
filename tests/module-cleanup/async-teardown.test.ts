@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { AsyncTeardown } from "../../src/module-cleanup/async-teardown.js"
+import { AsyncTeardown } from "../../src/core/providers/async-teardown/async-teardown.js"
 
 describe("AsyncTeardown", () => {
     it("runs higher priority cleanups first", async () => {

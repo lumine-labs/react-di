@@ -1,7 +1,7 @@
-import type { InjectionToken } from "../aliases/index.js"
-import type { Constructor } from "../utils/types.js"
+import { type InjectionToken, Scope } from "../../aliases/index.js"
+import type { Constructor } from "../../shared/types.js"
 
-export type ProviderScope = "singleton" | "transient" | "containerScoped" | "resolutionScoped"
+export type ProviderScope = "singleton" | "transient" | "containerScoped" | "resolutionScoped" | Scope
 
 export type OptionalFactoryDependency<T = unknown> = {
     token: InjectionToken<T>

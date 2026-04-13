@@ -1,10 +1,10 @@
 import { useMemo, type JSX, type ReactNode } from "react"
 
-import { type UseModuleParams } from "./types.js"
-import { useModule } from "./useModule.js"
-import { ModuleContext } from "./useModuleContext.js"
+import type { ModuleResolutionParams } from "../../core/module/resolution.types.js"
+import { useModule } from "../hooks/useModule.js"
+import { ModuleContext } from "../context/ModuleContext.js"
 
-export type ModuleProviderProps = UseModuleParams & {
+export type ModuleProviderProps = ModuleResolutionParams & {
     children?: ReactNode
 }
 

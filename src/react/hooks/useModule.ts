@@ -1,24 +1,24 @@
 import { useContext, useEffect, useRef, useState } from "react"
-import { type DependencyContainer } from "../aliases/index.js"
-
-import {
-    type ModuleHooks,
-    type ModuleResolution,
-    type ModuleResolutionLifecycle,
-    type UseModuleParams,
-    type UseModuleResult,
-} from "./types.js"
-import { createModuleResolution } from "./module.js"
-import { ModuleContext } from "./useModuleContext.js"
-import { AsyncTeardown } from "../module-cleanup/async-teardown.js"
 import { useEvent, useScheduleLayoutEffect } from "@lumelabs/react-hooks"
+import { type DependencyContainer } from "../../aliases/index.js"
+
+import { type ModuleResolution, type ModuleResolutionParams } from "../../core/module/resolution.types.js"
+import { ModuleContext, type ModuleContextValue } from "../context/ModuleContext.js"
+import { createModuleResolution } from "../../core/module/resolution.js"
+
+import { type ModuleHooks, type ModuleResolutionLifecycle } from "../../core/module/lifecycle.types.js"
+import { createModuleResolutionLifecycle } from "../../core/module/lifecycle.js"
 import {
-    createModuleResolutionLifecycle,
     runModuleDestroyLifecycle,
     runModuleInitLifecycle,
     runModuleMountLifecycle,
     runModuleUnmountLifecycle,
-} from "./lifecycle.js"
+} from "../../core/module/lifecycle.runners.js"
+
+import { AsyncTeardown } from "../../core/providers/async-teardown/async-teardown.js"
+
+// Types
+// ========================================
 
 type ModuleState = {
     id: number
@@ -28,7 +28,7 @@ type ModuleState = {
 
 // useModule
 // ========================================
-export function useModule(params?: UseModuleParams): UseModuleResult {
+export function useModule(params?: ModuleResolutionParams): ModuleContextValue {
     // Parent
     const parentContext = useContext(ModuleContext)
     const parentContainer = parentContext?.container ?? null
@@ -94,7 +94,7 @@ export function useModule(params?: UseModuleParams): UseModuleResult {
     }
 }
 
-function useModuleLifecycleHooks(params?: UseModuleParams): ModuleHooks {
+function useModuleLifecycleHooks(params?: ModuleResolutionParams): ModuleHooks {
     const onModuleInitEvent = useEvent((container: DependencyContainer) => {
         params?.onModuleInit?.(container)
     })
@@ -120,7 +120,7 @@ function useModuleLifecycleHooks(params?: UseModuleParams): ModuleHooks {
 function initializeModuleState(
     id: number,
     parentContainer: DependencyContainer | null,
-    params?: UseModuleParams
+    params?: ModuleResolutionParams
 ): ModuleState {
     const resolution = createModuleResolution(parentContainer, params)
     const emptyLifecycle: ModuleResolutionLifecycle = {
@@ -155,31 +155,30 @@ function initializeModuleState(
 }
 
 function attachReactiveModuleHooks(
-    params: UseModuleParams | undefined,
+    params: ModuleResolutionParams | undefined,
     hooks: ModuleHooks
-): UseModuleParams | undefined {
+): ModuleResolutionParams | undefined {
     if (!params) return params
 
-    const next = { ...params } as UseModuleParams
-    if (params.onModuleInit) (next as any).onModuleInit = hooks.onModuleInit
-    if (params.onModuleMount) (next as any).onModuleMount = hooks.onModuleMount
-    if (params.onModuleUnmount) (next as any).onModuleUnmount = hooks.onModuleUnmount
-    if (params.onModuleDestroy) (next as any).onModuleDestroy = hooks.onModuleDestroy
+    const next = { ...params } as ModuleResolutionParams
+    if (params.onModuleInit) next.onModuleInit = hooks.onModuleInit
+    if (params.onModuleMount) next.onModuleMount = hooks.onModuleMount
+    if (params.onModuleUnmount) next.onModuleUnmount = hooks.onModuleUnmount
+    if (params.onModuleDestroy) next.onModuleDestroy = hooks.onModuleDestroy
     return next
 }
 
 // Lifecycle processors
 // ========================================
+function mountModuleResolution(resolution: ModuleResolution, lifecycle: ModuleResolutionLifecycle): void {
+    runModuleMountLifecycle(resolution, lifecycle)
+}
+
 export function cleanupModuleResolution(resolution: ModuleResolution, lifecycle: ModuleResolutionLifecycle): void {
     runModuleUnmountLifecycle(resolution, lifecycle)
-
     if (resolution.owned) {
         scheduleContainerDestroy(resolution, lifecycle)
     }
-}
-
-function mountModuleResolution(resolution: ModuleResolution, lifecycle: ModuleResolutionLifecycle): void {
-    runModuleMountLifecycle(resolution, lifecycle)
 }
 
 function scheduleContainerDestroy(resolution: ModuleResolution, lifecycle: ModuleResolutionLifecycle): void {

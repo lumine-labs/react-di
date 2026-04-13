@@ -1,8 +1,8 @@
 import { render } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { ModuleProvider } from "../../src/module/ModuleProvider.js"
-import type { ModuleLifecycle } from "../../src/module/types.js"
+import { ModuleProvider } from "../../src/react/providers/ModuleProvider"
+import type { ModuleLifecycle } from "../../src/core/module/lifecycle.types.js"
 import { Container } from "../../src/aliases/index.js"
 
 const calls: string[] = []
@@ -161,7 +161,13 @@ describe("module lifecycle order", () => {
         }
 
         const view = render(
-            <ModuleProvider root providers={[{ provide: MULTI, useValue: first }, { provide: MULTI, useValue: second }]}>
+            <ModuleProvider
+                root
+                providers={[
+                    { provide: MULTI, useValue: first },
+                    { provide: MULTI, useValue: second },
+                ]}
+            >
                 <div />
             </ModuleProvider>
         )

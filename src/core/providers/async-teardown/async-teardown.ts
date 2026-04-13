@@ -1,4 +1,4 @@
-import type { CleanupFn } from "./types.js"
+export type CleanupFn = () => void | Promise<void>
 
 type TeardownEntry = {
     id: number

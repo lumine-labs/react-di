@@ -1,59 +1,6 @@
-export type {
-    ModuleHook,
-    ModuleHooks,
-    ModuleLifecycle,
-    RootModuleParams,
-    InheritModuleParams,
-    FactoryModuleParams,
-    ScopedModuleParams,
-    UseModuleParams,
-    ModuleResolution,
-    ModuleResolutionLifecycle,
-    UseModuleResult,
-    ModuleProviderProps,
-    WithModuleParams,
-} from "./module/index.js"
-export {
-    createModuleResolution,
-    resolveContainer,
-    useModule,
-    useModuleContext,
-    useModuleRebuild,
-    useContainer,
-    cleanupModuleResolution,
-    ModuleContext,
-    ModuleProvider,
-    withModule,
-} from "./module/index.js"
+// Aliases
+// ========================================
 
-export { registerProvider, registerProviders } from "./providers/index.js"
-export type {
-    ProviderScope,
-    OptionalFactoryDependency,
-    FactoryDependency,
-    ClassProvider,
-    ValueProvider,
-    FactoryProvider,
-    ExistingProvider,
-    Provider,
-} from "./providers/types.js"
-
-export type { IResolver } from "./resolver/index.js"
-export { Resolver, useResolve, useTryResolve } from "./resolver/index.js"
-
-export type { CleanupFn } from "./module-cleanup/index.js"
-export { AsyncTeardown, useAsyncTeardown } from "./module-cleanup/index.js"
-
-export type { Constructor, TokenOptions } from "./utils/index.js"
-export { tryResolve, resolveOr, di, makeTokenizer, Token } from "./utils/index.js"
-
-export type {
-    DependencyContainer,
-    InjectionToken,
-    RegistrationOptions,
-    Frequency,
-    Disposable,
-} from "./aliases/index.js"
 export {
     Container,
     Injectable,
@@ -68,3 +15,40 @@ export {
     ConditionalFactory,
     ScopedFactory,
 } from "./aliases/index.js"
+
+// Module resolution - Provider, HOC, Hooks
+// ========================================
+
+export { ModuleProvider } from "./react/providers/ModuleProvider.js"
+
+export { withModule } from "./react/hoc/withModule.js"
+
+export { useModule } from "./react/hooks/useModule.js"
+export { useContainer, useModuleContext, useModuleRebuild } from "./react/hooks/useModuleContext.js"
+
+// Resolver
+// ========================================
+
+export { Resolver } from "./core/providers/resolver/resolver.js"
+export { useResolve, useTryResolve } from "./react/hooks/useResolve.js"
+
+// Async Teardown
+// ========================================
+
+export { AsyncTeardown } from "./core/providers/async-teardown/async-teardown.js"
+export { useAsyncTeardown } from "./react/hooks/useAsyncTeardown.js"
+
+// Tokenizer
+// ========================================
+
+export { makeTokenizer, Token } from "./core/tokenizer/tokenizer.js"
+
+// Utils
+// ========================================
+
+export { resolve, tryResolve, resolveOr } from "./shared/container-utils.js"
+
+// Public types
+// ========================================
+
+export * from "./types.js"

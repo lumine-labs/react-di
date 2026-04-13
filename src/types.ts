@@ -1,36 +1,6 @@
-export type {
-    ModuleHook,
-    ModuleHooks,
-    ModuleLifecycle,
-    RootModuleParams,
-    InheritModuleParams,
-    FactoryModuleParams,
-    ScopedModuleParams,
-    UseModuleParams,
-    ModuleResolution,
-    ModuleResolutionLifecycle,
-    UseModuleResult,
-} from "./module/types.js"
+// Alias types
+// ========================================
 
-export type { ModuleProviderProps } from "./module/ModuleProvider.js"
-export type { WithModuleParams } from "./module/withModule.js"
-
-export type {
-    ProviderScope,
-    OptionalFactoryDependency,
-    FactoryDependency,
-    ClassProvider,
-    ValueProvider,
-    FactoryProvider,
-    ExistingProvider,
-    Provider,
-} from "./providers/types.js"
-
-export type { IResolver } from "./resolver/resolver.js"
-export type { CleanupFn } from "./module-cleanup/types.js"
-
-export type { Constructor } from "./utils/types.js"
-export type { TokenOptions, Token } from "./utils/token"
 export type {
     DependencyContainer,
     InjectionToken,
@@ -38,3 +8,51 @@ export type {
     Frequency,
     Disposable,
 } from "./aliases/index.js"
+
+// Core module types
+// ========================================
+
+export type {
+    RootModuleParams,
+    InheritModuleParams,
+    FactoryModuleParams,
+    ScopedModuleParams,
+    ModuleResolutionParams,
+    ModuleResolution,
+} from "./core/module/resolution.types.js"
+export type {
+    ModuleHook,
+    ModuleHooks,
+    ModuleLifecycle,
+    ModuleResolutionLifecycle,
+} from "./core/module/lifecycle.types.js"
+
+// Core provider types
+// ========================================
+
+export type {
+    OptionalFactoryDependency,
+    FactoryDependency,
+    ClassProvider,
+    ValueProvider,
+    FactoryProvider,
+    ExistingProvider,
+    Provider,
+} from "./core/providers/providers.types.js"
+export type { CleanupFn } from "./core/providers/async-teardown/async-teardown.js"
+
+// React surface types
+// ========================================
+
+export type { ModuleProviderProps } from "./react/providers/ModuleProvider.js"
+export type { WithModuleParams } from "./react/hoc/withModule.js"
+
+// Tokenizer types
+// ========================================
+
+export type { TokenOptions } from "./core/tokenizer/tokenizer.js"
+
+// Shared types
+// ========================================
+
+export type { Constructor } from "./shared/types.js"

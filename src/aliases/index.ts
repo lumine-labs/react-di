@@ -25,6 +25,14 @@ export type Frequency = TsFrequency
 export type Disposable = TsDisposable
 
 export const Container = container
+export const Scope = {
+    Transient: Lifecycle.Transient,
+    Singleton: Lifecycle.Singleton,
+    ResolutionScoped: Lifecycle.ResolutionScoped,
+    ContainerScoped: Lifecycle.ContainerScoped,
+} as const
+export type Scope = (typeof Scope)[keyof typeof Scope]
+
 export const Injectable = injectable
 export const Singleton = singleton
 export const Inject = inject
@@ -32,7 +40,7 @@ export const InjectAll = injectAll
 export const InjectWithTransform = injectWithTransform
 export const InjectAllWithTransform = injectAllWithTransform
 export const Delay = delay
-export const Scope = Lifecycle
+
 export const SingletonFactory = instanceCachingFactory
 export const ConditionalFactory = predicateAwareClassFactory
 export const ScopedFactory = instancePerContainerCachingFactory

@@ -1,17 +1,9 @@
-import type { DependencyContainer, InjectionToken } from "../aliases/index.js"
-import type { Provider } from "../providers/types.js"
-import { getProviderToken } from "../providers/index.js"
+import type { DependencyContainer, InjectionToken } from "../../aliases/index.js"
 
-import type {
-    ModuleHooks,
-    ModuleLifecycle,
-    ModuleResolution,
-    ModuleResolutionLifecycle,
-    UseModuleParams,
-} from "./types.js"
-
-export type LifecycleMethod = "onModuleMount" | "onModuleUnmount" | "onModuleDestroy"
-export type ModuleLifecycleMethod = "onModuleMount" | "onModuleUnmount" | "onModuleDestroy"
+import type { ModuleResolution, ModuleResolutionParams } from "./resolution.types.js"
+import type { ModuleHooks, ModuleLifecycle, ModuleResolutionLifecycle } from "./lifecycle.types.js"
+import type { Provider } from "../providers/providers.types.js"
+import { getProviderToken } from "../providers/getProviderToken.js"
 
 // Resolve lifecycle logic for module resolution
 // - moduleHooks - hooks for the container itself
@@ -19,7 +11,7 @@ export type ModuleLifecycleMethod = "onModuleMount" | "onModuleUnmount" | "onMod
 // - lifecycleInstances - resolved instances of providers with lifecycle hooks
 export function createModuleResolutionLifecycle(
     resolution: ModuleResolution,
-    params?: UseModuleParams
+    params?: ModuleResolutionParams
 ): ModuleResolutionLifecycle {
     // Don't run lifecycle hooks if we inherit container
     if (!resolution.owned) {
@@ -31,7 +23,7 @@ export function createModuleResolutionLifecycle(
     }
 
     const moduleHooks = extractModuleHooks(params)
-    const lifecycleTokens = resolution.registeredTokens
+    const lifecycleTokens = collectLifecycleTokens(resolution.providers)
     const lifecycleInstances = resolveProviderLifecycles(resolution.container, lifecycleTokens)
 
     return {
@@ -41,41 +33,10 @@ export function createModuleResolutionLifecycle(
     }
 }
 
-export function runModuleInitLifecycle(resolution: ModuleResolution, lifecycle: ModuleResolutionLifecycle): void {
-    try {
-        lifecycle.moduleHooks?.onModuleInit?.(resolution.container)
-    } catch (error) {
-        console.error("module.onModuleInit", error)
-        throw error
-    }
+// Processors
+// ========================================
 
-    const instances = lifecycle.lifecycleInstances ?? []
-    for (const instance of instances) {
-        try {
-            instance.onModuleInit?.()
-        } catch (error) {
-            console.error("provider.onModuleInit", error)
-            throw error
-        }
-    }
-}
-
-export function runModuleMountLifecycle(resolution: ModuleResolution, lifecycle: ModuleResolutionLifecycle): void {
-    runModuleHook(resolution, lifecycle, "onModuleMount")
-    runProviderLifecycles(lifecycle.lifecycleInstances, "onModuleMount")
-}
-
-export function runModuleUnmountLifecycle(resolution: ModuleResolution, lifecycle: ModuleResolutionLifecycle): void {
-    runProviderLifecycles(lifecycle.lifecycleInstances, "onModuleUnmount", true)
-    runModuleHook(resolution, lifecycle, "onModuleUnmount")
-}
-
-export function runModuleDestroyLifecycle(resolution: ModuleResolution, lifecycle: ModuleResolutionLifecycle): void {
-    runProviderLifecycles(lifecycle.lifecycleInstances, "onModuleDestroy", true)
-    runModuleHook(resolution, lifecycle, "onModuleDestroy")
-}
-
-export function extractModuleHooks(params?: UseModuleParams): ModuleHooks {
+function extractModuleHooks(params?: ModuleResolutionParams): ModuleHooks {
     return {
         onModuleInit: params?.onModuleInit,
         onModuleMount: params?.onModuleMount,
@@ -84,7 +45,7 @@ export function extractModuleHooks(params?: UseModuleParams): ModuleHooks {
     }
 }
 
-export function collectLifecycleTokens(providers: Provider[]): InjectionToken<any>[] {
+function collectLifecycleTokens(providers: Provider[]): InjectionToken<any>[] {
     const tokens: InjectionToken<any>[] = []
     for (const provider of providers) {
         if (isUseExistingProvider(provider)) continue
@@ -93,16 +54,14 @@ export function collectLifecycleTokens(providers: Provider[]): InjectionToken<an
     return tokens
 }
 
-function resolveProviderLifecycles(
-    container: DependencyContainer,
-    lifecycleTokens: InjectionToken<any>[]
-): ModuleLifecycle[] {
+function resolveProviderLifecycles(container: DependencyContainer, tokens: InjectionToken<any>[]): ModuleLifecycle[] {
     const lifecycleInstances: ModuleLifecycle[] = []
-    const tokenTotalCounts = countTokenOccurrences(lifecycleTokens)
+
+    const tokenTotalCounts = countTokenOccurrences(tokens)
     const tokenSeenCounts = new Map<InjectionToken<any>, number>()
     const resolvedAllCache = new Map<InjectionToken<any>, unknown[]>()
 
-    for (const token of lifecycleTokens) {
+    for (const token of tokens) {
         const resolved = resolveLifecycleInstance(container, token, tokenTotalCounts, tokenSeenCounts, resolvedAllCache)
         if (!isLifecycleCandidate(resolved)) continue
 
@@ -130,7 +89,7 @@ function resolveLifecycleInstance(
             resolvedAllCache.set(token, resolvedAll)
         }
         if (seen < resolvedAll.length) {
-            return resolvedAll[seen]
+            return resolvedAll.at(seen)
         }
         return resolvedAll.at(-1)
     }
@@ -147,34 +106,8 @@ function countTokenOccurrences(tokens: InjectionToken<any>[]): Map<InjectionToke
     return counts
 }
 
-export function runProviderLifecycles(
-    instances: ModuleResolutionLifecycle["lifecycleInstances"],
-    method: LifecycleMethod,
-    reverse = false
-): void {
-    if (!instances?.length) return
-
-    const ordered = reverse ? [...instances].reverse() : instances
-    for (const instance of ordered) {
-        try {
-            instance[method]?.()
-        } catch (error) {
-            console.error(`provider.${method}`, error)
-        }
-    }
-}
-
-function runModuleHook(
-    resolution: ModuleResolution,
-    lifecycle: ModuleResolutionLifecycle,
-    method: ModuleLifecycleMethod
-): void {
-    try {
-        lifecycle.moduleHooks?.[method]?.(resolution.container)
-    } catch (error) {
-        console.error(`module.${method}`, error)
-    }
-}
+// Helpers
+// ========================================
 
 function isUseExistingProvider(provider: Provider): boolean {
     return typeof provider !== "function" && "useExisting" in provider

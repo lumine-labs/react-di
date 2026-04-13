@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 import { Container } from "../../src/aliases/index.js"
-import { Resolver } from "../../src/resolver/resolver.js"
-import { createModuleResolution } from "../../src/module/module.js"
-import { createModuleResolutionLifecycle, runModuleInitLifecycle } from "../../src/module/lifecycle.js"
-import type { ModuleLifecycle } from "../../src/module/types.js"
+import { Resolver } from "../../src/core/providers/resolver/resolver.js"
+import { createModuleResolution } from "../../src/core/module/resolution.js"
+import { createModuleResolutionLifecycle } from "../../src/core/module/lifecycle.js"
+import { runModuleInitLifecycle } from "../../src/core/module/lifecycle.runners.js"
+import type { ModuleLifecycle } from "../../src/core/module/lifecycle.types.js"
 
 class ParentService {
     readonly value = "parent"

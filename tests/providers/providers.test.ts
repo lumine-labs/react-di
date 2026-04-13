@@ -1,7 +1,7 @@
 // eslint-disable-next-line max-classes-per-file
 import { describe, expect, it, vi } from "vitest"
 import { Container } from "../../src/aliases/index.js"
-import { registerProvider, registerProviders } from "../../src/providers/providers.js"
+import { registerProvider, registerProviders } from "../../src/core/providers/providers.js"
 
 class ServiceA {}
 class ServiceB {}
@@ -132,10 +132,7 @@ describe("registerProviders", () => {
     it("registers provider arrays in order", () => {
         const container = Container.createChildContainer()
 
-        registerProviders(container, [
-            ServiceA,
-            { provide: ServiceB, useClass: ServiceB },
-        ])
+        registerProviders(container, [ServiceA, { provide: ServiceB, useClass: ServiceB }])
 
         expect(container.resolve(ServiceA)).toBeInstanceOf(ServiceA)
         expect(container.resolve(ServiceB)).toBeInstanceOf(ServiceB)

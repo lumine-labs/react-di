@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it } from "vitest"
 import React from "react"
 
 import { Container } from "../../src/aliases/index.js"
-import { ModuleProvider } from "../../src/module/ModuleProvider.js"
-import { useModuleContext } from "../../src/module/useModuleContext.js"
-import { useResolve, useTryResolve } from "../../src/resolver/useResolve.js"
+import { ModuleProvider } from "../../src/react/providers/ModuleProvider"
+import { useModuleContext } from "../../src/react/hooks/useModuleContext"
+import { useResolve, useTryResolve } from "../../src/react/hooks/useResolve"
 
 class VersionedService {
     static nextVersion = 0
@@ -141,10 +141,7 @@ describe("module rebuild advanced", () => {
             setDynamicProviders = setEnabled
 
             return (
-                <ModuleProvider
-                    root
-                    providers={enabled ? [{ provide: TDynamic, useValue: "enabled" }] : []}
-                >
+                <ModuleProvider root providers={enabled ? [{ provide: TDynamic, useValue: "enabled" }] : []}>
                     <RootControls />
                     <ModuleProvider>
                         <DynamicProbe testId="desc-value" />

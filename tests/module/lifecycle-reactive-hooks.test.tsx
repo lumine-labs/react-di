@@ -2,7 +2,7 @@ import { act, render } from "@testing-library/react"
 import React from "react"
 import { describe, expect, it, vi } from "vitest"
 
-import { ModuleProvider } from "../../src/module/ModuleProvider.js"
+import { ModuleProvider } from "../../src/react/providers/ModuleProvider"
 
 describe("module lifecycle reactive hooks", () => {
     it("uses latest React closure for module destroy hook without rebuild", async () => {

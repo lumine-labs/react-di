@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
-import type { ModuleLifecycle } from "../../src/module/types.js"
-import { createModuleResolution } from "../../src/module/module.js"
-import { createModuleResolutionLifecycle, runModuleInitLifecycle } from "../../src/module/lifecycle.js"
+import type { ModuleLifecycle } from "../../src/core/module/lifecycle.types.js"
+import { createModuleResolution } from "../../src/core/module/resolution.js"
+import { createModuleResolutionLifecycle } from "../../src/core/module/lifecycle.js"
+import { runModuleInitLifecycle } from "../../src/core/module/lifecycle.runners.js"
 
 describe("module lifecycle multi-token support", () => {
     it("uses resolveAll once per repeated token and maps instances by occurrence index", () => {
@@ -34,4 +35,3 @@ describe("module lifecycle multi-token support", () => {
         expect(directResolveCallsForTokenA).toHaveLength(0)
     })
 })
-
