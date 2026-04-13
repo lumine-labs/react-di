@@ -4,6 +4,7 @@ import {
     ContainerResolver,
     UNSAFE_CONTAINER_RESOLVER,
 } from "../../src/core/providers/container-resolver/container-resolver.js"
+import { ModuleMetadata } from "../../src/core/providers/module-metadata/module-metadata.js"
 import { Resolver } from "../../src/core/providers/resolver/resolver.js"
 import { createModuleResolution } from "../../src/core/module/resolution.js"
 import { createModuleResolutionLifecycle } from "../../src/core/module/lifecycle.js"
@@ -41,23 +42,61 @@ describe("createModuleResolution", () => {
 
         expect(resolution.container.isRegistered(Resolver, false)).toBe(true)
         expect(resolution.container.isRegistered(UNSAFE_CONTAINER_RESOLVER, false)).toBe(true)
+        expect(resolution.container.isRegistered(ModuleMetadata, false)).toBe(true)
         expect(resolution.container.resolve(UNSAFE_CONTAINER_RESOLVER)).toBeInstanceOf(ContainerResolver)
+        expect(resolution.container.resolve(ModuleMetadata).id).toBeTypeOf("string")
+    })
+
+    it("uses explicit module id override in ModuleMetadata", () => {
+        const resolution = createModuleResolution(null, { root: true, id: "feature:users" })
+        const lifecycle = createModuleResolutionLifecycle(resolution, { root: true, id: "feature:users" })
+
+        runModuleInitLifecycle(resolution, lifecycle)
+
+        expect(resolution.container.resolve(ModuleMetadata).id).toBe("feature:users")
+    })
+
+    it("generates unique auto ids for owned module resolutions", () => {
+        const first = createModuleResolution(null, { root: true })
+        const second = createModuleResolution(null, { root: true })
+        const firstLifecycle = createModuleResolutionLifecycle(first, { root: true })
+        const secondLifecycle = createModuleResolutionLifecycle(second, { root: true })
+
+        runModuleInitLifecycle(first, firstLifecycle)
+        runModuleInitLifecycle(second, secondLifecycle)
+
+        const firstId = first.container.resolve(ModuleMetadata).id
+        const secondId = second.container.resolve(ModuleMetadata).id
+        const firstSeq = Number(firstId.split(":").at(-1))
+        const secondSeq = Number(secondId.split(":").at(-1))
+
+        expect(typeof firstId).toBe("string")
+        expect(typeof secondId).toBe("string")
+        expect(Number.isNaN(firstSeq)).toBe(false)
+        expect(Number.isNaN(secondSeq)).toBe(false)
+        expect(secondSeq).toBeGreaterThan(firstSeq)
     })
 
     it("returns provided container in inherit mode without owning it", () => {
-        const inherited = Container.createChildContainer()
+        const parentResolution = createModuleResolution(null, { root: true, id: "parent-module" })
+        const parentLifecycle = createModuleResolutionLifecycle(parentResolution, { root: true, id: "parent-module" })
+        runModuleInitLifecycle(parentResolution, parentLifecycle)
+
+        const inherited = parentResolution.container
         const resolution = createModuleResolution(null, { container: inherited })
 
         expect(resolution.owned).toBe(false)
         expect(resolution.container).toBe(inherited)
+        expect(resolution.container.resolve(ModuleMetadata).id).toBe("parent-module")
     })
 
-    it("throws when inherit mode is used with providers or onModuleInit", () => {
+    it("throws when inherit mode is used with id/providers or onModuleInit", () => {
         const inherited = Container.createChildContainer()
 
         expect(() =>
             createModuleResolution(null, {
                 container: inherited,
+                id: "x" as never,
                 providers: [] as never,
             } as never)
         ).toThrowError(/not allowed/)

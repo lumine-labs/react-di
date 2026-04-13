@@ -26,14 +26,14 @@ export { withModule } from "./react/hoc/withModule.js"
 export { useModule } from "./react/hooks/useModule.js"
 export { useContainer, useModuleContext, useModuleRebuild } from "./react/hooks/useModuleContext.js"
 
+// System providers
+// ========================================
+export { ContainerResolver, UNSAFE_CONTAINER_RESOLVER } from "./core/providers/container-resolver/container-resolver.js"
+export { ModuleMetadata } from "./core/providers/module-metadata/module-metadata.js"
+
 // Resolver
 // ========================================
-
 export { Resolver } from "./core/providers/resolver/resolver.js"
-export {
-    ContainerResolver,
-    UNSAFE_CONTAINER_RESOLVER,
-} from "./core/providers/container-resolver/container-resolver.js"
 export { useResolve, useTryResolve } from "./react/hooks/useResolve.js"
 
 // Async Teardown

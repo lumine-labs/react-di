@@ -7,6 +7,7 @@ import type { Provider } from "../providers/providers.types.js"
 // ========================================
 
 type OwnedModuleParams = {
+    id?: string
     providers?: Provider[]
 } & ModuleHooks
 
@@ -33,6 +34,7 @@ export type InheritModuleParams = {
     root?: never
     factory?: never
 
+    id?: never
     providers?: never
 
     onModuleInit?: never

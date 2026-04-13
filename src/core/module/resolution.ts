@@ -3,6 +3,7 @@ import { Container, type DependencyContainer } from "../../aliases/index.js"
 import type { ModuleResolution, ModuleResolutionParams } from "./resolution.types.js"
 import { createDefaultProviders } from "../providers/defaultProviders.js"
 import { registerProviders } from "../providers/providers.js"
+import { id } from "./id.js"
 
 export function createModuleResolution(
     parent: DependencyContainer | null,
@@ -15,7 +16,8 @@ export function createModuleResolution(
         return { container, owned, providers: [] }
     }
 
-    const providers = [...createDefaultProviders(container), ...(params?.providers ?? [])]
+    const moduleId = params?.id ?? id()
+    const providers = [...createDefaultProviders(container, { id: moduleId }), ...(params?.providers ?? [])]
 
     try {
         registerProviders(container, providers)
@@ -64,6 +66,7 @@ export function validateParams(params?: ModuleResolutionParams): void {
     // Validate params when inheriting from a container
     if (params?.container) {
         const checkMap = {
+            id: !!(params as any)?.id,
             providers: !!params?.providers,
             onModuleInit: !!params?.onModuleInit,
             onModuleMount: !!params?.onModuleMount,
