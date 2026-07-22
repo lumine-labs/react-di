@@ -44,10 +44,10 @@ const API_URL = Symbol("API_URL")
 ## Module Lifecycle Provider
 
 ```ts
-import { Injectable, type ModuleLifecycle } from "@lumelabs/react-di"
+import { Injectable, type ProviderLifecycle } from "@lumelabs/react-di"
 
 @Injectable()
-class SocketService implements ModuleLifecycle {
+class SocketService implements ProviderLifecycle {
     onModuleInit() {
         // create socket
     }

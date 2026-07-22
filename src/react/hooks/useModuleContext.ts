@@ -1,5 +1,5 @@
 import { useContext } from "react"
-import { type DependencyContainer } from "../../aliases/index.js"
+import type { DependencyContainer } from "../../aliases/index.js"
 import { ModuleContext, type ModuleContextValue } from "../context/ModuleContext.js"
 
 export function useModuleContext(): ModuleContextValue {

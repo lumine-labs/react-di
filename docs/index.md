@@ -24,9 +24,9 @@ features:
     - title: Async Teardown
       details: Coordinate async cleanup tasks with priority-based batching through AsyncTeardown.
     - title: React Integration
-      details: Use ModuleProvider, hooks, and withModule HOC while keeping React rendering concerns separate from DI concerns.
+      details: Use ModuleProvider, hooks, and the createModule boundary factory while keeping React rendering concerns separate from DI concerns.
     - title: Token Namespaces
       details: Create strict namespaced tokens with makeTokenizer for large apps and shared package boundaries.
     - title: Escape Hatches
-      details: Includes explicit UNSAFE container access for rare edge cases and infrastructure tooling.
+      details: Reach the underlying container through the ModuleMetadata system provider, the single documented door for infrastructure tooling and introspection.
 ---

@@ -41,6 +41,8 @@ For owned module resolutions:
 
 Inside a module subtree:
 
-- `useModuleContext()` gives `{ container, owned, id, rebuild }`.
+- `useModuleContext()` gives `{ container, owned, id, rebuild }`. `id` is a string: the `id` param if you
+  passed one — a stable, addressable identity that survives rebuilds — otherwise a generated debug label
+  that is regenerated on each rebuild (pass an `id` if you need a stable one).
 - `useContainer()` returns current container.
 - `useModuleRebuild()` rebuilds current module resolution.

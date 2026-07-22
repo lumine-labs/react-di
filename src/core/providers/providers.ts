@@ -39,7 +39,7 @@ export function registerProvider(container: DependencyContainer, provider: Provi
 
     if ("useFactory" in provider) {
         const factory = (c: DependencyContainer) =>
-            provider.useFactory(...resolveFactoryDependencies(c, provider.inject))
+            provider.useFactory(...resolveFactoryDependencies(c, provider.inject)) as unknown
 
         if (scope === Scope.Transient) {
             container.register(provider.provide, { useFactory: factory })
@@ -79,7 +79,7 @@ function isOptionalFactoryDependency(
 function resolveFactoryDependencies(container: DependencyContainer, dependencies?: FactoryDependency[]): unknown[] {
     if (!dependencies?.length) return []
 
-    return dependencies.map((dependency) => {
+    return dependencies.map((dependency): unknown => {
         if (isOptionalFactoryDependency(dependency)) {
             return container.isRegistered(dependency.token, true) ? container.resolve(dependency.token) : undefined
         }

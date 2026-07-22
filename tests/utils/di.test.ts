@@ -41,4 +41,33 @@ describe("di utils", () => {
         expect(resolved).toBeInstanceOf(ServiceA)
         expect(fallback).not.toHaveBeenCalled()
     })
+
+    it("returns a registered undefined from a factory instead of the fallback", () => {
+        const container = Container.createChildContainer()
+        const token = Symbol.for("tests:resolveOr:registered-undefined")
+        // tsyringe cannot register `useValue: undefined` (its value-provider guard rejects undefined),
+        // so a factory that returns undefined models a legitimately-registered undefined value.
+        container.register(token, { useFactory: () => undefined })
+
+        const resolved = resolveOr(container, token, "fallback")
+        expect(resolved).toBeUndefined()
+    })
+
+    it("resolveOr returns a registered falsy value instead of the fallback", () => {
+        const container = Container.createChildContainer()
+        const token = Symbol.for("tests:resolveOr:registered-zero")
+        container.register(token, { useValue: 0 })
+
+        const resolved = resolveOr(container, token, 42)
+        expect(resolved).toBe(0)
+    })
+
+    it("resolveOr invokes the function fallback lazily only when the token is unregistered", () => {
+        const container = Container.createChildContainer()
+        const fallback = vi.fn(() => "fallback")
+
+        const resolved = resolveOr(container, ServiceA, fallback)
+        expect(resolved).toBe("fallback")
+        expect(fallback).toHaveBeenCalledTimes(1)
+    })
 })

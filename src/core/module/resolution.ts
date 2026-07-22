@@ -1,8 +1,10 @@
 import { Container, type DependencyContainer } from "../../aliases/index.js"
 
 import type { ModuleResolution, ModuleResolutionParams } from "./resolution.types.js"
-import { createDefaultProviders } from "../providers/defaultProviders.js"
+import { createModuleProviders } from "../providers/createModuleProviders.js"
+import { ModuleMetadata } from "../providers/module-metadata/module-metadata.provider.js"
 import { registerProviders } from "../providers/providers.js"
+import { tryResolve } from "../../shared/container-utils.js"
 import { id } from "./id.js"
 
 export function createModuleResolution(
@@ -13,14 +15,26 @@ export function createModuleResolution(
 
     const { container, owned } = resolveContainer(parent, params)
     if (!owned) {
-        return { container, owned, providers: [] }
+        // An inherit module is a window onto an existing container: if that container's chain carries an
+        // owned ancestor's ModuleMetadata, share its id (honest — same container, same identity). A bare
+        // external container has no metadata in its chain, so fall back to a per-resolution generated id.
+        const metadata = tryResolve(container, ModuleMetadata)
+        return { container, owned, id: metadata?.id ?? id() }
     }
 
+    // User-supplied ids are the addressable, rebuild-stable identity — params re-deliver the same string
+    // on every render. A generated id is a per-resolution debug label: fresh on each rebuild, but since it
+    // is unaddressable (nothing can look a module up by it), that instability is unobservable.
     const moduleId = params?.id ?? id()
-    const providers = [...createDefaultProviders(container, { id: moduleId }), ...(params?.providers ?? [])]
+
+    const { metadata, providers: moduleProviders } = createModuleProviders({ id: moduleId, container, parent })
+    const userProviders = params?.providers ?? []
+    const providers = [...moduleProviders, ...userProviders]
+    metadata.setProviders(providers)
 
     try {
-        registerProviders(container, providers)
+        registerProviders(container, moduleProviders)
+        registerProviders(container, userProviders)
     } catch (error) {
         try {
             container.dispose()
@@ -30,7 +44,7 @@ export function createModuleResolution(
         throw error
     }
 
-    return { container, owned, providers }
+    return { container, owned, id: moduleId }
 }
 
 export function resolveContainer(
@@ -63,11 +77,11 @@ export function resolveContainer(
 }
 
 export function validateParams(params?: ModuleResolutionParams): void {
-    // Validate params when inheriting from a container
     if (params?.container) {
         const checkMap = {
             id: !!(params as any)?.id,
             providers: !!params?.providers,
+            rebuildOn: !!(params as any)?.rebuildOn,
             onModuleInit: !!params?.onModuleInit,
             onModuleMount: !!params?.onModuleMount,
             onModuleUnmount: !!params?.onModuleUnmount,
@@ -82,7 +96,6 @@ export function validateParams(params?: ModuleResolutionParams): void {
         }
     }
 
-    // Validate module mode combinations
     if (params?.root && ((params as any).container || (params as any).factory)) {
         throw new Error("`root` cannot be used with `container` or `factory`.")
     }

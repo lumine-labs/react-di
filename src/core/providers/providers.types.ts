@@ -1,4 +1,4 @@
-import { type InjectionToken, Scope } from "../../aliases/index.js"
+import type { InjectionToken, Scope } from "../../aliases/index.js"
 import type { Constructor } from "../../shared/types.js"
 
 export type ProviderScope = "singleton" | "transient" | "containerScoped" | "resolutionScoped" | Scope
@@ -10,27 +10,27 @@ export type OptionalFactoryDependency<T = unknown> = {
 
 export type FactoryDependency = InjectionToken<any> | OptionalFactoryDependency<any>
 
-export interface ClassProvider<T = any> {
+export type ClassProvider<T = any> = {
     provide: InjectionToken<T>
     useClass: Constructor<T>
     scope?: ProviderScope
     inject?: never
 }
 
-export interface ValueProvider<T = any> {
+export type ValueProvider<T = any> = {
     provide: InjectionToken<T>
     useValue: T
     inject?: never
 }
 
-export interface FactoryProvider<T = any> {
+export type FactoryProvider<T = any> = {
     provide: InjectionToken<T>
     useFactory: (...args: any[]) => T
     inject?: FactoryDependency[]
-    scope?: ProviderScope
+    scope?: Exclude<ProviderScope, "resolutionScoped" | typeof Scope.ResolutionScoped>
 }
 
-export interface ExistingProvider<T = any> {
+export type ExistingProvider<T = any> = {
     provide: InjectionToken<T>
     useExisting: InjectionToken<T>
 }

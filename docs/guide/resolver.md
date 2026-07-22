@@ -33,11 +33,23 @@ class DynamicHandler {
 
 Both hooks resolve from current module context container.
 
-## UNSAFE Container Access
+## Container Access via ModuleMetadata
 
-For edge cases only:
+Containers are internal currency: services should depend on their injected dependencies, not on the
+container. For the rare introspection/infrastructure case (plugins, DevTools) that genuinely needs the
+container, inject `ModuleMetadata` — the single public door:
 
-- Inject `UNSAFE_CONTAINER_RESOLVER`
-- Call `unsafe_getContainer()`
+```ts
+import { ModuleMetadata } from "@lumelabs/react-di"
 
-This is an explicit anti-pattern escape hatch and should not be used as primary app architecture.
+class Introspector {
+    constructor(private readonly meta: ModuleMetadata) {}
+
+    // meta.container — own container; meta.parent — lifecycle parent; meta.children — attached children
+}
+```
+
+`container`/`parent`/`children` are an infrastructure surface. Mutating a container you did not create is
+undefined behavior. Never use `ModuleMetadata.providers` for resolution decisions — ask the container
+(`isRegistered`/`resolve`); it is a declared, capture-only snapshot that cannot see dynamic
+registrations or parent-chain lookups.

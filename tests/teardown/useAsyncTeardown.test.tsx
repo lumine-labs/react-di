@@ -2,7 +2,7 @@ import { render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
-import { AsyncTeardown } from "../../src/core/providers/async-teardown/async-teardown.js"
+import { AsyncTeardown } from "../../src/core/providers/async-teardown/async-teardown.provider.js"
 import { useAsyncTeardown } from "../../src/react/hooks/useAsyncTeardown.js"
 import { useResolve } from "../../src/react/hooks/useResolve.js"
 

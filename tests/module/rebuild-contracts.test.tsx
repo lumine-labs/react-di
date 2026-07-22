@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest"
 
 import { Container, type DependencyContainer } from "../../src/aliases/index.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider"
-import { useModuleContext } from "../../src/react/hooks/useModuleContext"
+import { useContainer, useModuleContext } from "../../src/react/hooks/useModuleContext"
+import { ModuleMetadata } from "../../src/core/providers/module-metadata/module-metadata.provider.js"
 
 let rebuildModule: (() => void) | null = null
 let lastContainer: DependencyContainer | null = null
@@ -27,30 +28,72 @@ function ModuleProbe({ testId }: { testId: string }) {
 }
 
 describe("rebuild contracts", () => {
-    it("keeps inherited container identity on rebuild", () => {
-        const inherited = Container.createChildContainer()
-        rebuildModule = null
-        lastContainer = null
-        prevContainer = null
+    it("gives an inherit module a generated id when its container is not in an owned chain", () => {
+        // A bare external container, NOT a descendant of the owned module's container.
+        const bare = Container.createChildContainer()
+        let ownerId: string | null = null
+        let inheritId: string | null = null
+
+        function OwnerProbe() {
+            ownerId = useModuleContext().id
+            return null
+        }
+        function InheritProbe() {
+            inheritId = useModuleContext().id
+            return null
+        }
 
         render(
-            <ModuleProvider container={inherited}>
-                <ModuleProbe testId="inherit" />
+            <ModuleProvider root id="feature:owner">
+                <OwnerProbe />
+                <ModuleProvider container={bare}>
+                    <InheritProbe />
+                </ModuleProvider>
             </ModuleProvider>
         )
 
-        expect(screen.getByTestId("inherit-id").textContent).toBe("0")
-        expect(screen.getByTestId("inherit-same-container").textContent).toBe("different")
-
-        act(() => {
-            rebuildModule?.()
-        })
-
-        expect(screen.getByTestId("inherit-id").textContent).toBe("1")
-        expect(screen.getByTestId("inherit-same-container").textContent).toBe("same")
+        // Identity follows the container chain, not the React tree: `bare` carries no owned metadata, so
+        // the inherit module gets a fresh generated id — NOT the owned ancestor's id.
+        expect(inheritId).toBeTruthy()
+        expect(inheritId).not.toBe(ownerId)
+        expect(inheritId).toMatch(/^@lumelabs\/react-di:/)
     })
 
-    it("creates new container on root rebuild", () => {
+    it("shares the owned ancestor's id with an inherit module on that container", () => {
+        let ownerId: string | null = null
+        let inheritId: string | null = null
+
+        function OwnerProbe() {
+            ownerId = useModuleContext().id
+            return null
+        }
+        function InheritProbe() {
+            inheritId = useModuleContext().id
+            return null
+        }
+        function Nested() {
+            // The owned ancestor's container — an inherit module pointed at it is a window onto it.
+            const container = useContainer()
+            return (
+                <ModuleProvider container={container}>
+                    <InheritProbe />
+                </ModuleProvider>
+            )
+        }
+
+        render(
+            <ModuleProvider root id="feature:owner">
+                <OwnerProbe />
+                <Nested />
+            </ModuleProvider>
+        )
+
+        // The inherit module chain-resolves the ancestor's ModuleMetadata and shares its id.
+        expect(inheritId).toBe("feature:owner")
+        expect(inheritId).toBe(ownerId)
+    })
+
+    it("creates a new container on root rebuild", () => {
         rebuildModule = null
         lastContainer = null
         prevContainer = null
@@ -61,17 +104,15 @@ describe("rebuild contracts", () => {
             </ModuleProvider>
         )
 
-        expect(screen.getByTestId("root-id").textContent).toBe("0")
-
         act(() => {
             rebuildModule?.()
         })
 
-        expect(screen.getByTestId("root-id").textContent).toBe("1")
+        // A fresh container proves the rebuild happened.
         expect(screen.getByTestId("root-same-container").textContent).toBe("different")
     })
 
-    it("creates new container on factory rebuild", () => {
+    it("creates a new container on factory rebuild", () => {
         rebuildModule = null
         lastContainer = null
         prevContainer = null
@@ -82,13 +123,11 @@ describe("rebuild contracts", () => {
             </ModuleProvider>
         )
 
-        expect(screen.getByTestId("factory-id").textContent).toBe("0")
-
         act(() => {
             rebuildModule?.()
         })
 
-        expect(screen.getByTestId("factory-id").textContent).toBe("1")
+        // A fresh container detects the rebuild.
         expect(screen.getByTestId("factory-same-container").textContent).toBe("different")
     })
 
@@ -114,7 +153,7 @@ describe("rebuild contracts", () => {
             </ModuleProvider>
         )
 
-        expect(screen.getByTestId("id").textContent).toBe("0")
+        expect(screen.getByTestId("id").textContent).toBeTruthy()
 
         shouldFail = true
 
@@ -141,6 +180,51 @@ describe("rebuild contracts", () => {
             </React.StrictMode>
         )
 
-        expect(screen.getByTestId("strict-id").textContent).toBe("0")
+        expect(screen.getByTestId("strict-id").textContent).toBeTruthy()
+    })
+
+    it("threads a params-supplied id as the single value for context.id and metadata.id", () => {
+        function Probe() {
+            const { id, container } = useModuleContext()
+            return (
+                <div>
+                    <span data-testid="ctx-id">{id}</span>
+                    <span data-testid="meta-id">{container.resolve(ModuleMetadata).id}</span>
+                </div>
+            )
+        }
+
+        render(
+            <ModuleProvider root id="feature:users">
+                <Probe />
+            </ModuleProvider>
+        )
+
+        // One value threaded everywhere: the public context id and the metadata id are the same string.
+        expect(screen.getByTestId("ctx-id").textContent).toBe("feature:users")
+        expect(screen.getByTestId("meta-id").textContent).toBe("feature:users")
+    })
+
+    it("gives sibling modules distinct generated ids", () => {
+        function IdProbe({ testId }: { testId: string }) {
+            return <span data-testid={testId}>{useModuleContext().id}</span>
+        }
+
+        render(
+            <>
+                <ModuleProvider root>
+                    <IdProbe testId="sibling-a" />
+                </ModuleProvider>
+                <ModuleProvider root>
+                    <IdProbe testId="sibling-b" />
+                </ModuleProvider>
+            </>
+        )
+
+        const a = screen.getByTestId("sibling-a").textContent
+        const b = screen.getByTestId("sibling-b").textContent
+        expect(a).toBeTruthy()
+        expect(b).toBeTruthy()
+        expect(a).not.toBe(b)
     })
 })

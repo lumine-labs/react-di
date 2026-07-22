@@ -2,12 +2,12 @@ import { render } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider"
-import type { ModuleLifecycle } from "../../src/core/module/lifecycle.types.js"
+import type { ProviderLifecycle } from "../../src/core/providers/module-lifecycle/module-lifecycle.types.js"
 import { Container } from "../../src/aliases/index.js"
 
 const calls: string[] = []
 
-class ServiceA implements ModuleLifecycle {
+class ServiceA implements ProviderLifecycle {
     onModuleInit() {
         calls.push("A:init")
     }
@@ -22,7 +22,7 @@ class ServiceA implements ModuleLifecycle {
     }
 }
 
-class ServiceB implements ModuleLifecycle {
+class ServiceB implements ProviderLifecycle {
     onModuleInit() {
         calls.push("B:init")
     }
@@ -37,7 +37,7 @@ class ServiceB implements ModuleLifecycle {
     }
 }
 
-class FailingInitService implements ModuleLifecycle {
+class FailingInitService implements ProviderLifecycle {
     onModuleInit() {
         throw new Error("provider init failed")
     }
@@ -69,19 +69,9 @@ describe("module lifecycle order", () => {
 
         expect(calls).toEqual(["module:init", "A:init", "B:init", "module:mount", "A:mount", "B:mount"])
 
+        // Unmount is part of the deferred tree teardown (unmount → destroy → dispose run
+        // together in the microtask flush), so nothing tears down until the flush drains.
         view.unmount()
-        expect(calls).toEqual([
-            "module:init",
-            "A:init",
-            "B:init",
-            "module:mount",
-            "A:mount",
-            "B:mount",
-            "B:unmount",
-            "A:unmount",
-            "module:unmount",
-        ])
-
         await vi.runAllTimersAsync()
 
         expect(calls).toEqual([
@@ -125,6 +115,23 @@ describe("module lifecycle order", () => {
         ).toThrowError(/not allowed when inheriting from a container/)
     })
 
+    it("rejects rebuildOn in inherit mode", () => {
+        const inherited = Container.createChildContainer()
+
+        expect(() =>
+            render(
+                <ModuleProvider
+                    {...({
+                        container: inherited,
+                        rebuildOn: [1],
+                    } as any)}
+                >
+                    <div />
+                </ModuleProvider>
+            )
+        ).toThrowError(/not allowed when inheriting from a container/)
+    })
+
     it("disposes owned container when provider init lifecycle throws", () => {
         const disposeSpy = vi.fn()
         const factory = () => {
@@ -147,13 +154,13 @@ describe("module lifecycle order", () => {
     it("supports repeated provider tokens in FIFO/LIFO order", async () => {
         const MULTI = Symbol("MULTI")
 
-        const first: ModuleLifecycle = {
+        const first: ProviderLifecycle = {
             onModuleInit: () => calls.push("M1:init"),
             onModuleMount: () => calls.push("M1:mount"),
             onModuleUnmount: () => calls.push("M1:unmount"),
             onModuleDestroy: () => calls.push("M1:destroy"),
         }
-        const second: ModuleLifecycle = {
+        const second: ProviderLifecycle = {
             onModuleInit: () => calls.push("M2:init"),
             onModuleMount: () => calls.push("M2:mount"),
             onModuleUnmount: () => calls.push("M2:unmount"),
@@ -174,9 +181,8 @@ describe("module lifecycle order", () => {
 
         expect(calls).toEqual(["M1:init", "M2:init", "M1:mount", "M2:mount"])
 
+        // Unmount + destroy run together in the deferred flush.
         view.unmount()
-        expect(calls).toEqual(["M1:init", "M2:init", "M1:mount", "M2:mount", "M2:unmount", "M1:unmount"])
-
         await vi.runAllTimersAsync()
         expect(calls).toEqual([
             "M1:init",

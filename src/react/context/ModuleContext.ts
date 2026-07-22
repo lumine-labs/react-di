@@ -4,7 +4,7 @@ import type { DependencyContainer } from "../../aliases/index.js"
 export type ModuleContextValue = {
     container: DependencyContainer
     owned: boolean
-    id: number
+    id: string
     rebuild: () => void
 }
 

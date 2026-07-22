@@ -1,15 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 import { Container } from "../../src/aliases/index.js"
-import {
-    ContainerResolver,
-    UNSAFE_CONTAINER_RESOLVER,
-} from "../../src/core/providers/container-resolver/container-resolver.js"
-import { ModuleMetadata } from "../../src/core/providers/module-metadata/module-metadata.js"
-import { Resolver } from "../../src/core/providers/resolver/resolver.js"
+import { ModuleMetadata } from "../../src/core/providers/module-metadata/module-metadata.provider.js"
+import { Resolver } from "../../src/core/providers/resolver/resolver.provider.js"
 import { createModuleResolution } from "../../src/core/module/resolution.js"
-import { createModuleResolutionLifecycle } from "../../src/core/module/lifecycle.js"
-import { runModuleInitLifecycle } from "../../src/core/module/lifecycle.runners.js"
-import type { ModuleLifecycle } from "../../src/core/module/lifecycle.types.js"
+import { ModuleLifecycle } from "../../src/core/providers/module-lifecycle/module-lifecycle.provider.js"
+import type { ModuleResolution } from "../../src/core/module/resolution.types.js"
+import type { ModuleHooks, ProviderLifecycle } from "../../src/core/providers/module-lifecycle/module-lifecycle.types.js"
 
 class ParentService {
     readonly value = "parent"
@@ -19,12 +15,17 @@ class LocalService {
     readonly value = "local"
 }
 
-class LifecycleService implements ModuleLifecycle {
+class LifecycleService implements ProviderLifecycle {
     constructor(private readonly onInit: () => void) {}
 
     onModuleInit(): void {
         this.onInit()
     }
+}
+
+/** Run the local lifecycle through the orchestrator, as useModule wires it for owned resolutions. */
+function initModule(resolution: ModuleResolution, hooks?: ModuleHooks): void {
+    resolution.container.resolve(ModuleLifecycle).init(hooks)
 }
 
 describe("createModuleResolution", () => {
@@ -36,22 +37,16 @@ describe("createModuleResolution", () => {
 
     it("creates lifecycle plan and registers default providers for owned resolution", () => {
         const resolution = createModuleResolution(null, { root: true })
-        const lifecycle = createModuleResolutionLifecycle(resolution, { root: true })
-
-        runModuleInitLifecycle(resolution, lifecycle)
+        initModule(resolution)
 
         expect(resolution.container.isRegistered(Resolver, false)).toBe(true)
-        expect(resolution.container.isRegistered(UNSAFE_CONTAINER_RESOLVER, false)).toBe(true)
         expect(resolution.container.isRegistered(ModuleMetadata, false)).toBe(true)
-        expect(resolution.container.resolve(UNSAFE_CONTAINER_RESOLVER)).toBeInstanceOf(ContainerResolver)
         expect(resolution.container.resolve(ModuleMetadata).id).toBeTypeOf("string")
     })
 
     it("uses explicit module id override in ModuleMetadata", () => {
         const resolution = createModuleResolution(null, { root: true, id: "feature:users" })
-        const lifecycle = createModuleResolutionLifecycle(resolution, { root: true, id: "feature:users" })
-
-        runModuleInitLifecycle(resolution, lifecycle)
+        initModule(resolution)
 
         expect(resolution.container.resolve(ModuleMetadata).id).toBe("feature:users")
     })
@@ -59,11 +54,9 @@ describe("createModuleResolution", () => {
     it("generates unique auto ids for owned module resolutions", () => {
         const first = createModuleResolution(null, { root: true })
         const second = createModuleResolution(null, { root: true })
-        const firstLifecycle = createModuleResolutionLifecycle(first, { root: true })
-        const secondLifecycle = createModuleResolutionLifecycle(second, { root: true })
 
-        runModuleInitLifecycle(first, firstLifecycle)
-        runModuleInitLifecycle(second, secondLifecycle)
+        initModule(first)
+        initModule(second)
 
         const firstId = first.container.resolve(ModuleMetadata).id
         const secondId = second.container.resolve(ModuleMetadata).id
@@ -79,8 +72,7 @@ describe("createModuleResolution", () => {
 
     it("returns provided container in inherit mode without owning it", () => {
         const parentResolution = createModuleResolution(null, { root: true, id: "parent-module" })
-        const parentLifecycle = createModuleResolutionLifecycle(parentResolution, { root: true, id: "parent-module" })
-        runModuleInitLifecycle(parentResolution, parentLifecycle)
+        initModule(parentResolution)
 
         const inherited = parentResolution.container
         const resolution = createModuleResolution(null, { container: inherited })
@@ -152,57 +144,57 @@ describe("createModuleResolution", () => {
             providers: [LocalService],
             onModuleInit,
         })
-        const lifecycle = createModuleResolutionLifecycle(resolution, {
-            root: true,
-            providers: [LocalService],
-            onModuleInit,
-        })
-        runModuleInitLifecycle(resolution, lifecycle)
+        initModule(resolution, { onModuleInit })
 
         expect(resolution.container.resolve(LocalService)).toBeInstanceOf(LocalService)
         expect(onModuleInit).toHaveBeenCalledTimes(1)
         expect(onModuleInit).toHaveBeenCalledWith(resolution.container)
     })
 
+    it("binds Resolver to the nearest owned module's container through inherit-mode modules", () => {
+        const owned = createModuleResolution(null, { root: true })
+        initModule(owned)
+
+        // Inherit-mode module layered under the owned module: transparent, no own registrations.
+        const unownedContainer = owned.container.createChildContainer()
+        const inherited = createModuleResolution(null, { container: unownedContainer })
+        expect(inherited.owned).toBe(false)
+
+        // A component under the inherit-mode module gets the nearest owned ancestor's instance...
+        const resolver = inherited.container.resolve(Resolver)
+        expect(resolver).toBe(owned.container.resolve(Resolver))
+
+        // ...bound to that ancestor's container, not the initiating one: non-recursive resolution
+        // sees the owned module's registrations but not the inherit-layer's own.
+        const OwnedToken = Symbol("OWNED_TOKEN")
+        const InheritToken = Symbol("INHERIT_TOKEN")
+        owned.container.register(OwnedToken, { useValue: "from-owned" })
+        unownedContainer.register(InheritToken, { useValue: "from-inherit-layer" })
+
+        expect(resolver.resolve(OwnedToken, false)).toBe("from-owned")
+        expect(resolver.tryResolve(InheritToken, false)).toBeUndefined()
+    })
+
     it("allows overriding default providers with explicit module providers", () => {
         const customResolver = { resolve: vi.fn(), tryResolve: vi.fn() } as any
-        const customContainerResolver = { unsafe_getContainer: vi.fn() } as any
 
         const resolution = createModuleResolution(null, {
             root: true,
-            providers: [
-                { provide: Resolver, useValue: customResolver },
-                { provide: UNSAFE_CONTAINER_RESOLVER, useValue: customContainerResolver },
-            ],
+            providers: [{ provide: Resolver, useValue: customResolver }],
         })
-        const lifecycle = createModuleResolutionLifecycle(resolution, {
-            root: true,
-            providers: [
-                { provide: Resolver, useValue: customResolver },
-                { provide: UNSAFE_CONTAINER_RESOLVER, useValue: customContainerResolver },
-            ],
-        })
-        runModuleInitLifecycle(resolution, lifecycle)
+        initModule(resolution)
 
+        // The Resolver system provider is registered first; an explicit override wins (last-registered).
         expect(resolution.container.resolve(Resolver)).toBe(customResolver)
-        expect(resolution.container.resolve(UNSAFE_CONTAINER_RESOLVER)).toBe(customContainerResolver)
     })
 
     it("throws when module init lifecycle callback fails", () => {
-        const resolution = createModuleResolution(null, {
-            root: true,
-            onModuleInit: () => {
-                throw new Error("init failed")
-            },
-        })
-        const lifecycle = createModuleResolutionLifecycle(resolution, {
-            root: true,
-            onModuleInit: () => {
-                throw new Error("init failed")
-            },
-        })
+        const onModuleInit = () => {
+            throw new Error("init failed")
+        }
+        const resolution = createModuleResolution(null, { root: true, onModuleInit })
 
-        expect(() => runModuleInitLifecycle(resolution, lifecycle)).toThrowError("init failed")
+        expect(() => initModule(resolution, { onModuleInit })).toThrowError("init failed")
     })
 
     it("runs init lifecycle for repeated provider tokens by registration occurrence", () => {
@@ -210,17 +202,17 @@ describe("createModuleResolution", () => {
         const TOKEN = Symbol("MULTI_TOKEN")
         const MIDDLE_TOKEN = Symbol("MIDDLE_TOKEN")
 
-        const first: ModuleLifecycle = {
+        const first: ProviderLifecycle = {
             onModuleInit: () => {
                 calls.push("first")
             },
         }
-        const middle: ModuleLifecycle = {
+        const middle: ProviderLifecycle = {
             onModuleInit: () => {
                 calls.push("middle")
             },
         }
-        const second: ModuleLifecycle = {
+        const second: ProviderLifecycle = {
             onModuleInit: () => {
                 calls.push("second")
             },
@@ -234,16 +226,8 @@ describe("createModuleResolution", () => {
                 { provide: TOKEN, useValue: second },
             ],
         })
-        const lifecycle = createModuleResolutionLifecycle(resolution, {
-            root: true,
-            providers: [
-                { provide: TOKEN, useValue: first },
-                { provide: MIDDLE_TOKEN, useValue: middle },
-                { provide: TOKEN, useValue: second },
-            ],
-        })
 
-        runModuleInitLifecycle(resolution, lifecycle)
+        initModule(resolution)
 
         expect(calls).toEqual(["first", "middle", "second"])
     })
@@ -256,19 +240,12 @@ describe("createModuleResolution", () => {
             root: true,
             providers: [{ provide: LifecycleService, useValue: new LifecycleService(onInit) }],
         })
-        const parentLifecycle = createModuleResolutionLifecycle(parentResolution, {
-            root: true,
-            providers: [{ provide: LifecycleService, useValue: new LifecycleService(onInit) }],
-        })
-        runModuleInitLifecycle(parentResolution, parentLifecycle)
+        initModule(parentResolution)
 
         const childResolution = createModuleResolution(parentResolution.container, {
             providers: [{ provide: Alias, useExisting: LifecycleService }],
         })
-        const childLifecycle = createModuleResolutionLifecycle(childResolution, {
-            providers: [{ provide: Alias, useExisting: LifecycleService }],
-        })
-        runModuleInitLifecycle(childResolution, childLifecycle)
+        initModule(childResolution)
 
         expect(onInit).toHaveBeenCalledTimes(1)
         expect(childResolution.container.resolve(Alias)).toBe(parentResolution.container.resolve(LifecycleService))
@@ -283,12 +260,8 @@ describe("createModuleResolution", () => {
             root: true,
             providers: [{ provide: ValueToken, useValue: instance }],
         })
-        const lifecycle = createModuleResolutionLifecycle(resolution, {
-            root: true,
-            providers: [{ provide: ValueToken, useValue: instance }],
-        })
 
-        runModuleInitLifecycle(resolution, lifecycle)
+        initModule(resolution)
 
         expect(onInit).toHaveBeenCalledTimes(1)
         expect(resolution.container.resolve(ValueToken)).toBe(instance)

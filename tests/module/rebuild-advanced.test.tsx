@@ -57,7 +57,7 @@ describe("module rebuild advanced", () => {
         factoryCalls = 0
     })
 
-    it("runs previous module unmount before replacing module on rebuild", () => {
+    it("tears down the previous module on rebuild", async () => {
         const unmountCalls: number[] = []
         let initVersion = 0
 
@@ -81,21 +81,21 @@ describe("module rebuild advanced", () => {
             </ModuleProvider>
         )
 
-        expect(screen.getByTestId("id").textContent).toBe("0")
-
-        act(() => {
+        // The rebuild updater is pure — teardown of the old resolution moves to the effect path
+        // (deferred microtask flush) and runs AFTER the new resolution has rendered + inited. So the old
+        // module's unmount observes the post-swap init counter (2, not 1). The async act flushes the
+        // deferred teardown. The unmount/init counters (unmountCalls) detect the rebuilds.
+        await act(async () => {
             rebuildRoot?.()
         })
 
-        expect(screen.getByTestId("id").textContent).toBe("1")
-        expect(unmountCalls).toEqual([1])
+        expect(unmountCalls).toEqual([2])
 
-        act(() => {
+        await act(async () => {
             rebuildRoot?.()
         })
 
-        expect(screen.getByTestId("id").textContent).toBe("2")
-        expect(unmountCalls).toEqual([1, 2])
+        expect(unmountCalls).toEqual([2, 3])
     })
 
     it("creates a fresh factory container on each rebuild", () => {
@@ -125,14 +125,13 @@ describe("module rebuild advanced", () => {
         )
 
         expect(screen.getByTestId("value").textContent).toBe("factory-1")
-        expect(screen.getByTestId("id").textContent).toBe("0")
 
         act(() => {
             rebuildRoot?.()
         })
 
+        // The fresh factory value (factory-1 → factory-2) detects the rebuild.
         expect(screen.getByTestId("value").textContent).toBe("factory-2")
-        expect(screen.getByTestId("id").textContent).toBe("1")
     })
 
     it("exposes newly added parent provider to descendants only after explicit parent rebuild", () => {
@@ -178,39 +177,45 @@ describe("module rebuild advanced", () => {
             </ModuleProvider>
         )
 
-        expect(screen.getByTestId("root-id").textContent).toBe("0")
-        expect(screen.getByTestId("child-id").textContent).toBe("0")
+        // The single version bump (1→2, not 1→3) proves the two parent rebuild calls coalesced into one,
+        // and that the cascade reached the child.
+        expect(screen.getByTestId("root-version").textContent).toBe("1")
+        expect(screen.getByTestId("child-version").textContent).toBe("1")
 
         act(() => {
             rebuildRoot?.()
             rebuildRoot?.()
         })
 
-        expect(screen.getByTestId("root-id").textContent).toBe("1")
-        expect(screen.getByTestId("child-id").textContent).toBe("1")
+        expect(screen.getByTestId("root-version").textContent).toBe("2")
+        expect(screen.getByTestId("child-version").textContent).toBe("2")
     })
 
     it("keeps child manual rebuild independent after parent rebuild", () => {
+        // The child owns its own VersionedService so its rebuilds (parent-cascaded and manual alike) are
+        // observable via a fresh instance — a service version is the detector, not the module id.
         render(
             <ModuleProvider root providers={[VersionedService]}>
                 <RootControls />
-                <ModuleProvider>
+                <ModuleProvider providers={[VersionedService]}>
                     <ChildControls />
                     <VersionProbe testId="child" />
                 </ModuleProvider>
             </ModuleProvider>
         )
 
-        expect(screen.getByTestId("child-id").textContent).toBe("0")
+        const versionInitial = screen.getByTestId("child-version").textContent
 
         act(() => {
             rebuildRoot?.()
         })
-        expect(screen.getByTestId("child-id").textContent).toBe("1")
+        const versionAfterParent = screen.getByTestId("child-version").textContent
+        expect(versionAfterParent).not.toBe(versionInitial) // parent rebuild cascaded to the child
 
         act(() => {
             rebuildChild?.()
         })
-        expect(screen.getByTestId("child-id").textContent).toBe("2")
+        const versionAfterChild = screen.getByTestId("child-version").textContent
+        expect(versionAfterChild).not.toBe(versionAfterParent) // independent manual child rebuild
     })
 })

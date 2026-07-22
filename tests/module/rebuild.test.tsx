@@ -38,15 +38,14 @@ describe("module rebuild", () => {
         )
 
         expect(screen.getByTestId("version").textContent).toBe("1")
-        expect(screen.getByTestId("id").textContent).toBe("0")
         expect(rebuildModule).not.toBeNull()
 
         act(() => {
             rebuildModule?.()
         })
 
+        // Rebuild is detected via the freshly-constructed VersionedService (version increments).
         expect(screen.getByTestId("version").textContent).toBe("2")
-        expect(screen.getByTestId("id").textContent).toBe("1")
     })
 
     it("coalesces multiple rebuild calls in one render cycle", () => {
@@ -57,7 +56,6 @@ describe("module rebuild", () => {
         )
 
         expect(screen.getByTestId("version").textContent).toBe("1")
-        expect(screen.getByTestId("id").textContent).toBe("0")
         expect(rebuildModule).not.toBeNull()
 
         act(() => {
@@ -65,7 +63,49 @@ describe("module rebuild", () => {
             rebuildModule?.()
         })
 
+        // The single version bump (1→2, not 1→3) proves the two calls coalesced into one rebuild.
         expect(screen.getByTestId("version").textContent).toBe("2")
-        expect(screen.getByTestId("id").textContent).toBe("1")
+    })
+
+    it("keeps a params-supplied id stable across rebuilds", () => {
+        render(
+            <ModuleProvider root id="feature:stable" providers={[VersionedService]}>
+                <Probe />
+            </ModuleProvider>
+        )
+
+        expect(screen.getByTestId("version").textContent).toBe("1")
+        expect(screen.getByTestId("id").textContent).toBe("feature:stable")
+
+        // A user-supplied id is the addressable identity — params re-deliver the same string every
+        // render, so it survives rebuilds (each of which constructs a fresh VersionedService).
+        for (let n = 2; n <= 4; n += 1) {
+            act(() => {
+                rebuildModule?.()
+            })
+            expect(screen.getByTestId("version").textContent).toBe(String(n))
+            expect(screen.getByTestId("id").textContent).toBe("feature:stable")
+        }
+    })
+
+    it("regenerates a per-resolution generated id on each rebuild", () => {
+        render(
+            <ModuleProvider root providers={[VersionedService]}>
+                <Probe />
+            </ModuleProvider>
+        )
+
+        const idBefore = screen.getByTestId("id").textContent
+        expect(idBefore).toBeTruthy()
+        expect(screen.getByTestId("version").textContent).toBe("1")
+
+        act(() => {
+            rebuildModule?.()
+        })
+
+        // A generated id is a per-resolution debug label, fresh on each rebuild. Because nothing can
+        // address a module by it, this instability is unobservable to consumers (unlike a params id).
+        expect(screen.getByTestId("version").textContent).toBe("2")
+        expect(screen.getByTestId("id").textContent).not.toBe(idBefore)
     })
 })

@@ -15,31 +15,36 @@ export function tryResolve<T>(
     return container.isRegistered(token, recursive) ? container.resolve(token) : undefined
 }
 
-export function resolveOr<T, TFallback>(
-    container: DependencyContainer,
-    token: InjectionToken<T>,
-    fallback: TFallback,
-    recursive?: boolean
-): T | TFallback
+export function resolveAll<T>(container: DependencyContainer, token: InjectionToken<T>, recursive = true): T[] {
+    return container.isRegistered(token, recursive) ? container.resolveAll(token) : []
+}
 
-export function resolveOr<T, TFallback>(
+export function resolveOr<T, F>(
     container: DependencyContainer,
     token: InjectionToken<T>,
-    fallback: () => TFallback,
+    fallback: F,
     recursive?: boolean
-): T | TFallback
+): T | F
 
-export function resolveOr<T, TFallback>(
+export function resolveOr<T, F>(
     container: DependencyContainer,
     token: InjectionToken<T>,
-    fallback: TFallback | (() => TFallback),
+    fallback: () => F,
+    recursive?: boolean
+): T | F
+
+export function resolveOr<T, F>(
+    container: DependencyContainer,
+    token: InjectionToken<T>,
+    fallback: F | (() => F),
     recursive = true
-): T | TFallback {
-    const resolved = tryResolve(container, token, recursive)
-    if (resolved !== undefined) return resolved
+): T | F {
+    if (container.isRegistered(token, recursive)) {
+        return container.resolve(token)
+    }
 
     if (typeof fallback === "function") {
-        const callback = fallback as () => TFallback
+        const callback = fallback as () => F
         return callback()
     }
 

@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { Container } from "../../src/aliases/index.js"
 import { registerProvider, registerProviders } from "../../src/core/providers/providers.js"
+import type { FactoryProvider } from "../../src/core/providers/providers.types.js"
 
 class ServiceA {}
 class ServiceB {}
@@ -118,13 +119,25 @@ describe("registerProvider", () => {
         const container = Container.createChildContainer()
         const token = Symbol.for("tests:factory-resolution-scoped")
 
-        expect(() =>
-            registerProvider(container, {
-                provide: token,
-                useFactory: () => new ImplService(),
-                scope: "resolutionScoped",
-            })
-        ).toThrowError(/not supported/)
+        // The type-level narrowing forbids this scope (asserted below); cast to exercise the runtime guard.
+        const invalidProvider = {
+            provide: token,
+            useFactory: () => new ImplService(),
+            scope: "resolutionScoped",
+        } as unknown as FactoryProvider
+
+        expect(() => registerProvider(container, invalidProvider)).toThrowError(/not supported/)
+    })
+
+    it("rejects resolutionScoped scope on FactoryProvider at compile time", () => {
+        const factoryProvider: FactoryProvider = {
+            provide: Symbol.for("tests:factory-ts-scope"),
+            useFactory: () => new ImplService(),
+            // @ts-expect-error resolutionScoped is excluded from FactoryProvider scope
+            scope: "resolutionScoped",
+        }
+
+        expect(factoryProvider.scope).toBe("resolutionScoped")
     })
 })
 

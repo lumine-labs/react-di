@@ -23,9 +23,8 @@ export type {
 export type {
     ModuleHook,
     ModuleHooks,
-    ModuleLifecycle,
-    ModuleResolutionLifecycle,
-} from "./core/module/lifecycle.types.js"
+    ProviderLifecycle,
+} from "./core/providers/module-lifecycle/module-lifecycle.types.js"
 
 // Core provider types
 // ========================================
@@ -39,13 +38,18 @@ export type {
     ExistingProvider,
     Provider,
 } from "./core/providers/providers.types.js"
-export type { CleanupFn } from "./core/providers/async-teardown/async-teardown.js"
+export type { CleanupFn } from "./core/providers/async-teardown/async-teardown.provider.js"
+
+// Props bridge types
+// ========================================
+
+export type { PropsAdapter } from "./core/providers/props-ref/props-ref.provider.js"
 
 // React surface types
 // ========================================
 
 export type { ModuleProviderProps } from "./react/providers/ModuleProvider.js"
-export type { WithModuleParams } from "./react/hoc/withModule.js"
+export type { CreateModuleParams } from "./react/factories/createModule.js"
 
 // Tokenizer types
 // ========================================

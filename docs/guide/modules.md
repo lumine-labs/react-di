@@ -37,9 +37,10 @@ Every owned module registers `ModuleMetadata` with a string `id`.
 
 Owned modules automatically register:
 
-- `Resolver`
-- `ModuleMetadata`
-- `UNSAFE_CONTAINER_RESOLVER` (explicit escape hatch)
+- `Resolver` (container-bound; one instance per module container)
+- `ModuleMetadata` (data record + single public container door)
+- `ModuleRegistry` (internal — lifecycle-tree structure)
+- `ModuleLifecycle` (internal — tree-orchestrated mount/destroy)
 
 `AsyncTeardown` is optional and should be added explicitly via `providers` when needed.
 

@@ -69,3 +69,11 @@ storybook-static
 /core.*
 .vite
 .eslintcache
+
+# AI
+.codex
+.claude
+graphify
+graphify-out
+agent-notes
+

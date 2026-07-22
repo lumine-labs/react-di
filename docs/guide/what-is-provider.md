@@ -27,7 +27,7 @@ Scope controls instance lifetime:
 
 ## Lifecycle and Providers
 
-Providers that resolve to objects implementing:
+Providers that resolve to objects implementing the `ProviderLifecycle` hooks:
 
 - `onModuleInit`
 - `onModuleMount`

@@ -3,7 +3,7 @@ import { defineConfig } from "vitepress"
 export default defineConfig({
     base: "/react-di/",
     title: "@lumelabs/react-di",
-    description: "Module-oriented Dependency Injection for React built on top of tsyringe",
+    description: "Non-reactive dependency injection library for React built on top of tsyringe with immutable module scopes.",
     themeConfig: {
         nav: [
             { text: "Home", link: "/" },

@@ -1,9 +1,9 @@
-import type { DependencyContainer, InjectionToken } from "../../aliases/index.js"
+import type { DependencyContainer } from "../../../aliases/index.js"
 
 // Lifecycle hooks for providers
 // ========================================
 
-export interface ModuleLifecycle {
+export type ProviderLifecycle = {
     onModuleInit?(): void
     onModuleMount?(): void
     onModuleUnmount?(): void
@@ -19,10 +19,4 @@ export type ModuleHooks = {
     onModuleMount?: ModuleHook
     onModuleUnmount?: ModuleHook
     onModuleDestroy?: ModuleHook
-}
-
-export type ModuleResolutionLifecycle = {
-    moduleHooks?: ModuleHooks
-    lifecycleTokens?: InjectionToken<any>[]
-    lifecycleInstances?: ModuleLifecycle[]
 }

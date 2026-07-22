@@ -1,6 +1,6 @@
 import type { DependencyContainer } from "../../aliases/index.js"
 
-import type { ModuleHooks } from "./lifecycle.types.js"
+import type { ModuleHooks } from "../providers/module-lifecycle/module-lifecycle.types.js"
 import type { Provider } from "../providers/providers.types.js"
 
 // Module parameters
@@ -9,6 +9,7 @@ import type { Provider } from "../providers/providers.types.js"
 type OwnedModuleParams = {
     id?: string
     providers?: Provider[]
+    rebuildOn?: unknown[]
 } & ModuleHooks
 
 export type RootModuleParams = {
@@ -36,6 +37,7 @@ export type InheritModuleParams = {
 
     id?: never
     providers?: never
+    rebuildOn?: never
 
     onModuleInit?: never
     onModuleMount?: never
@@ -48,5 +50,5 @@ export type ModuleResolutionParams = RootModuleParams | FactoryModuleParams | Sc
 export type ModuleResolution = {
     container: DependencyContainer
     owned: boolean
-    providers: Provider[]
+    id: string
 }

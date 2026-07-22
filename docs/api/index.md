@@ -13,26 +13,28 @@ This page documents the current public surface from `@lumelabs/react-di`.
 ### React Module API
 
 - `ModuleProvider`
-- `withModule`
+- `createModule`
 - `useModule`
 - `useModuleContext`
 - `useContainer`
 - `useModuleRebuild`
+- `usePropsRef`
 
 ### Resolution API
 
 - `Resolver`
 - `useResolve`
 - `useTryResolve`
+- `useResolveAll`
 - `resolve(container, token, recursive?)`
 - `tryResolve(container, token, recursive?)`
+- `resolveAll(container, token, recursive?)`
 - `resolveOr(container, token, fallback, recursive?)`
 
 ### System Providers
 
-- `ModuleMetadata`
-- `ContainerResolver`
-- `UNSAFE_CONTAINER_RESOLVER`
+- `ModuleMetadata` (single public container door: `container`/`parent`/`children`/`providers`)
+- `PropsRef`
 - `AsyncTeardown`
 - `useAsyncTeardown`
 
@@ -60,7 +62,7 @@ This page documents the current public surface from `@lumelabs/react-di`.
 - `ModuleResolutionParams`
 - `ModuleResolution`
 - `ModuleHook`, `ModuleHooks`
-- `ModuleLifecycle`, `ModuleResolutionLifecycle`
+- `ProviderLifecycle`
 
 ### Provider Types
 
@@ -72,7 +74,8 @@ This page documents the current public surface from `@lumelabs/react-di`.
 ### React Types
 
 - `ModuleProviderProps`
-- `WithModuleParams`
+- `CreateModuleParams`
+- `PropsAdapter`
 
 ### Utility Types
 

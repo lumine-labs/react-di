@@ -58,10 +58,18 @@ rebuild()
 
 Rebuild creates a fresh owned resolution and re-runs module/provider lifecycle.
 
-## `withModule` HOC
+## `createModule` boundary factory
 
 ```tsx
-import { withModule } from "@lumelabs/react-di"
+import { createModule } from "@lumelabs/react-di"
 
-const FeatureWithModule = withModule(Feature, { root: true, providers: [MyService] })
+const FeatureModule = createModule({ root: true, providers: [MyService] })
+
+// Usage: the boundary wraps any children.
+;<FeatureModule>
+    <Feature />
+</FeatureModule>
 ```
+
+The params can also be a function of the boundary's own props — see the props bridging guide for the
+full story (`rebuildOn`, the automatic `PropsRef` bridge).
