@@ -1,8 +1,8 @@
 // eslint-disable-next-line max-classes-per-file
 import { describe, expect, it, vi } from "vitest"
-import { Container } from "../../src/aliases/index.js"
+import { Container, Scope } from "../../src/aliases/index.js"
 import { registerProvider, registerProviders } from "../../src/core/providers/providers.js"
-import type { FactoryProvider } from "../../src/core/providers/providers.types.js"
+import type { ClassProvider, FactoryProvider, ProviderScope } from "../../src/core/providers/providers.types.js"
 
 class ServiceA {}
 class ServiceB {}
@@ -76,9 +76,8 @@ describe("registerProvider", () => {
         expect(factory).toHaveBeenCalledTimes(1)
     })
 
-    it("supports singleton/containerScoped/transient for factory providers", () => {
+    it("supports singleton/transient for factory providers", () => {
         const tokenSingleton = Symbol.for("tests:factory-singleton")
-        const tokenScoped = Symbol.for("tests:factory-scoped")
         const tokenTransient = Symbol.for("tests:factory-transient")
         const root = Container.createChildContainer()
 
@@ -86,11 +85,6 @@ describe("registerProvider", () => {
             provide: tokenSingleton,
             useFactory: () => new ImplService(),
             scope: "singleton",
-        })
-        registerProvider(root, {
-            provide: tokenScoped,
-            useFactory: () => new ImplService(),
-            scope: "containerScoped",
         })
         registerProvider(root, {
             provide: tokenTransient,
@@ -102,42 +96,74 @@ describe("registerProvider", () => {
         const rootSingleton2 = root.resolve<ImplService>(tokenSingleton)
         expect(rootSingleton1).toBe(rootSingleton2)
 
-        const rootScoped1 = root.resolve<ImplService>(tokenScoped)
-        const rootScoped2 = root.resolve<ImplService>(tokenScoped)
-        expect(rootScoped1).toBe(rootScoped2)
-
         const rootTransient1 = root.resolve<ImplService>(tokenTransient)
         const rootTransient2 = root.resolve<ImplService>(tokenTransient)
         expect(rootTransient1).not.toBe(rootTransient2)
 
+        // A singleton factory registration is shared down the container chain — one instance, one owner.
         const child = root.createChildContainer()
-        const childScoped = child.resolve<ImplService>(tokenScoped)
-        expect(childScoped).not.toBe(rootScoped1)
+        expect(child.resolve<ImplService>(tokenSingleton)).toBe(rootSingleton1)
     })
 
-    it("throws for resolutionScoped factory providers", () => {
-        const container = Container.createChildContainer()
-        const token = Symbol.for("tests:factory-resolution-scoped")
+    it("keeps a factory singleton bound to the declaring registration across child containers", () => {
+        const token = Symbol.for("tests:factory-singleton-chain")
+        const root = Container.createChildContainer()
+        const built: ImplService[] = []
 
-        // The type-level narrowing forbids this scope (asserted below); cast to exercise the runtime guard.
-        const invalidProvider = {
+        registerProvider(root, {
             provide: token,
-            useFactory: () => new ImplService(),
-            scope: "resolutionScoped",
-        } as unknown as FactoryProvider
+            useFactory: () => {
+                const instance = new ImplService()
+                built.push(instance)
+                return instance
+            },
+        })
 
-        expect(() => registerProvider(container, invalidProvider)).toThrowError(/not supported/)
+        const grandchild = root.createChildContainer().createChildContainer()
+        const fromGrandchild = grandchild.resolve<ImplService>(token)
+        const fromRoot = root.resolve<ImplService>(token)
+
+        expect(fromGrandchild).toBe(fromRoot)
+        expect(built).toHaveLength(1)
     })
+})
 
-    it("rejects resolutionScoped scope on FactoryProvider at compile time", () => {
-        const factoryProvider: FactoryProvider = {
+// Scope model — the deleted string scopes must not typecheck (D35).
+// ========================================
+// `npm run test` cannot fail on these; `npm run typecheck:tests` is the gate. A directive that stops
+// being needed is itself an error, so a re-introduced scope breaks this block.
+
+describe("scope model", () => {
+    it("rejects containerScoped and resolutionScoped at compile time", () => {
+        const classProvider: ClassProvider<ImplService> = {
+            provide: ImplService,
+            useClass: ImplService,
+            // @ts-expect-error containerScoped was removed from the scope model
+            scope: "containerScoped",
+        }
+
+        const factoryProvider: FactoryProvider<ImplService> = {
             provide: Symbol.for("tests:factory-ts-scope"),
             useFactory: () => new ImplService(),
-            // @ts-expect-error resolutionScoped is excluded from FactoryProvider scope
+            // @ts-expect-error resolutionScoped was removed from the scope model
             scope: "resolutionScoped",
         }
 
-        expect(factoryProvider.scope).toBe("resolutionScoped")
+        // @ts-expect-error ProviderScope is "singleton" | "transient" | Scope
+        const containerScoped: ProviderScope = "containerScoped"
+        // @ts-expect-error ProviderScope is "singleton" | "transient" | Scope
+        const resolutionScoped: ProviderScope = "resolutionScoped"
+
+        expect([classProvider.scope, factoryProvider.scope, containerScoped, resolutionScoped]).toEqual([
+            "containerScoped",
+            "resolutionScoped",
+            "containerScoped",
+            "resolutionScoped",
+        ])
+    })
+
+    it("exposes exactly two Scope values", () => {
+        expect(Object.keys(Scope).sort()).toEqual(["Singleton", "Transient"])
     })
 })
 

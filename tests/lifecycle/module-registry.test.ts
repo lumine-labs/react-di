@@ -66,20 +66,34 @@ describe("ModuleRegistry", () => {
         expect([...parent.registry.childrenMetadata()]).toEqual([c1.meta, c2.meta])
     })
 
-    it("is transparent through an unowned parent to the nearest owned ancestor", () => {
-        const owned = makeNode("owned", null)
-        // Unowned wrapper: a child container with NO ModuleMetadata registered (inherit-mode module).
-        const unownedContainer = owned.container.createChildContainer()
-        // A grandchild whose lifecycle parent is the transparent unowned container.
-        const grandContainer = unownedContainer.createChildContainer()
-        const grandMeta = new ModuleMetadata({ id: "g", container: grandContainer, parent: unownedContainer })
-        grandContainer.register(ModuleMetadata, { useValue: grandMeta })
-        const grandRegistry = new ModuleRegistry(grandMeta)
+    it("does not walk through a plain container to a module further up the chain", () => {
+        const module = makeNode("module", null)
+        // A plain tsyringe child container: no ModuleMetadata of its own, so not a module.
+        const plainContainer = module.container.createChildContainer()
+        // A node whose lifecycle parent is that plain container.
+        const childContainer = plainContainer.createChildContainer()
+        const childMeta = new ModuleMetadata({ id: "c", container: childContainer, parent: plainContainer })
+        childContainer.register(ModuleMetadata, { useValue: childMeta })
+        const childRegistry = new ModuleRegistry(childMeta)
 
-        // Resolving ModuleMetadata recursively from the unowned container skips it to the owned ancestor.
-        expect(grandRegistry.parentMetadata()).toBe(owned.meta)
+        // One hop only. A recursive lookup would resolve `module`'s metadata through the chain and
+        // silently graft this node onto a container that is not its lifecycle parent.
+        expect(childRegistry.parentMetadata()).toBeNull()
+        expect([...childRegistry.ancestors()]).toEqual([])
+        expect(childRegistry.findRoot()).toBe(childMeta)
 
-        grandRegistry.attach()
-        expect([...owned.meta.children]).toEqual([grandContainer])
+        childRegistry.attach()
+        expect([...module.meta.children]).toEqual([])
+    })
+
+    it("skips a child container that carries no metadata of its own", () => {
+        const parent = makeNode("p", null)
+        const real = makeNode("c", parent)
+        const plainContainer = parent.container.createChildContainer()
+
+        real.registry.attach()
+        parent.meta.addChild(plainContainer)
+
+        expect([...parent.registry.childrenMetadata()]).toEqual([real.meta])
     })
 })

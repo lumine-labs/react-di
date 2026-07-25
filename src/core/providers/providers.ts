@@ -3,7 +3,6 @@ import {
     type InjectionToken,
     Scope,
     type Scope as ScopeValue,
-    ScopedFactory,
     SingletonFactory,
 } from "../../aliases/index.js"
 import type { FactoryDependency, Provider, ProviderScope } from "./providers.types.js"
@@ -46,27 +45,13 @@ export function registerProvider(container: DependencyContainer, provider: Provi
             return
         }
 
-        if (scope === Scope.Singleton) {
-            container.register(provider.provide, { useFactory: SingletonFactory(factory) })
-            return
-        }
-
-        if (scope === Scope.ContainerScoped) {
-            container.register(provider.provide, { useFactory: ScopedFactory(factory) })
-            return
-        }
-
-        throw new Error(
-            'registerProvider: scope "resolutionScoped" is not supported for factory providers. Use "transient", "singleton", or "containerScoped".'
-        )
+        container.register(provider.provide, { useFactory: SingletonFactory(factory) })
     }
 }
 
 function normalizeProviderScope(scope: ProviderScope | undefined): ScopeValue {
     if (scope === undefined || scope === "singleton") return Scope.Singleton
     if (scope === "transient") return Scope.Transient
-    if (scope === "containerScoped") return Scope.ContainerScoped
-    if (scope === "resolutionScoped") return Scope.ResolutionScoped
     return scope
 }
 

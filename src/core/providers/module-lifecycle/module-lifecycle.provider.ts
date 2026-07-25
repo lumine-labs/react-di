@@ -44,9 +44,9 @@ export function teardownRoots<T>(pending: ReadonlySet<T>, getParent: (node: T) =
  * order is treated as untrusted input.
  *
  * Signals (the entire external surface):
- *   - `init(hooks?)`  — render path, owned modules only, after registration. Resolves the module's
- *                       provider-lifecycle instances and runs the INIT phase. INIT errors propagate
- *                       (the caller disposes the container); every other phase isolates its errors.
+ *   - `init(hooks?)`  — render path, after registration. Resolves the module's provider-lifecycle
+ *                       instances and runs the INIT phase. INIT errors propagate (the caller disposes
+ *                       the container); every other phase isolates its errors.
  *   - `commit()`      — effect setup. Cancels any pending teardown (resurrection), attaches into the
  *                       tree, and mounts iff this node is a root or its parent is already mounted.
  *   - `scheduleTeardown()` — effect cleanup. Never destroys synchronously; enqueues a deferred flush.
@@ -281,7 +281,7 @@ export class ModuleLifecycle {
     // Tree navigation
     // ========================================
 
-    /** The lifecycle parent's orchestrator (nearest owned ancestor), or null at a root. */
+    /** The lifecycle parent's orchestrator, or null at a root. */
     private parentLifecycle(): ModuleLifecycle | null {
         return resolveLifecycle(this.metadata.parent)
     }
@@ -289,7 +289,7 @@ export class ModuleLifecycle {
     /** This node's child orchestrators, in insertion (commit) order. */
     private *childLifecycles(): IterableIterator<ModuleLifecycle> {
         for (const container of this.metadata.children) {
-            const child = resolveOwnLifecycle(container)
+            const child = resolveLifecycle(container)
             if (child) yield child
         }
     }
@@ -401,19 +401,13 @@ function isLifecycleCandidate(value: unknown): value is ProviderLifecycle {
 // Tree resolution helpers
 // ========================================
 
-/** Resolve the orchestrator reachable from a parent container (recursive; skips transparent unowned levels). */
+/**
+ * Resolve the orchestrator registered directly on a container, or null when it is not a module container.
+ * Every module has its own container and registers its own orchestrator on it, so there is no chain to
+ * walk: a hit here IS that container's module, and a miss means there is no module at that level.
+ */
 function resolveLifecycle(container: DependencyContainer | null): ModuleLifecycle | null {
     if (!container) return null
-    try {
-        if (!container.isRegistered(ModuleLifecycle, true)) return null
-        return container.resolve(ModuleLifecycle)
-    } catch {
-        return null
-    }
-}
-
-/** Resolve a container's OWN orchestrator only (no parent-chain walk). */
-function resolveOwnLifecycle(container: DependencyContainer): ModuleLifecycle | null {
     try {
         if (!container.isRegistered(ModuleLifecycle, false)) return null
         return container.resolve(ModuleLifecycle)

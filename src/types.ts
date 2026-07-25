@@ -14,7 +14,6 @@ export type {
 
 export type {
     RootModuleParams,
-    InheritModuleParams,
     FactoryModuleParams,
     ScopedModuleParams,
     ModuleResolutionParams,

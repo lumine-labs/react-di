@@ -10,7 +10,6 @@ import {
     Lifecycle,
     instanceCachingFactory,
     predicateAwareClassFactory,
-    instancePerContainerCachingFactory,
     type DependencyContainer as TsDependencyContainer,
     type InjectionToken as TsInjectionToken,
     type RegistrationOptions as TsRegistrationOptions,
@@ -28,8 +27,6 @@ export const Container = container
 export const Scope = {
     Transient: Lifecycle.Transient,
     Singleton: Lifecycle.Singleton,
-    ResolutionScoped: Lifecycle.ResolutionScoped,
-    ContainerScoped: Lifecycle.ContainerScoped,
 } as const
 export type Scope = (typeof Scope)[keyof typeof Scope]
 
@@ -43,4 +40,3 @@ export const Delay = delay
 
 export const SingletonFactory = instanceCachingFactory
 export const ConditionalFactory = predicateAwareClassFactory
-export const ScopedFactory = instancePerContainerCachingFactory

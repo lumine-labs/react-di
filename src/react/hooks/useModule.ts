@@ -27,8 +27,8 @@ export function useModule(params?: ModuleResolutionParams): ModuleContextValue {
     )
 
     // Lifecycle bridge — React supplies the commit/cleanup signal; the tree supplies the order.
-    // setup   → (owned) resolve ModuleLifecycle → commit() (idempotent, cancels any pending teardown)
-    // cleanup → (owned) resolve ModuleLifecycle → scheduleTeardown() (deferred microtask flush)
+    // setup   → resolve ModuleLifecycle → commit() (idempotent, cancels any pending teardown)
+    // cleanup → resolve ModuleLifecycle → scheduleTeardown() (deferred microtask flush)
     useEffect(() => {
         commitModuleResolution(resolution)
         return () => scheduleModuleResolutionTeardown(resolution)
@@ -50,7 +50,7 @@ export function useModule(params?: ModuleResolutionParams): ModuleContextValue {
 
     // Scoped modules rebuild when the parent container changes.
     useEffect(() => {
-        const isScopedMode = !params?.root && !params?.container && !params?.factory
+        const isScopedMode = !params?.root && !params?.factory
         if (isScopedMode && prevParentContainerRef.current !== parentContainer) {
             rebuild()
         }
@@ -71,7 +71,6 @@ export function useModule(params?: ModuleResolutionParams): ModuleContextValue {
 
     return {
         container: resolution.container,
-        owned: resolution.owned,
         id: resolution.id,
         rebuild,
     }
@@ -107,26 +106,18 @@ function initializeModuleResolution(
 ): ModuleResolution {
     const resolution = createModuleResolution(parentContainer, params)
 
-    // The single owned conditional: unowned (inherit-mode) modules make no lifecycle calls —
-    // resolving ModuleLifecycle on an inherited container would reach the owning ancestor's
-    // orchestrator.
-    if (resolution.owned) {
+    try {
+        resolution.container.resolve(ModuleLifecycle).init(hooks)
+    } catch (error) {
         try {
-            // init() eagerly resolves the provider lifecycle instances and runs the INIT phase,
-            // before the effect can commit. A throwing init propagates here so the catch disposes
-            // the container.
-            resolution.container.resolve(ModuleLifecycle).init(hooks)
-        } catch (error) {
-            try {
-                const result = resolution.container.dispose()
-                if (result instanceof Promise) {
-                    void result
-                }
-            } catch {
-                // noop
+            const result = resolution.container.dispose()
+            if (result instanceof Promise) {
+                void result
             }
-            throw error
+        } catch {
+            // noop
         }
+        throw error
     }
 
     return resolution
@@ -144,11 +135,9 @@ function rebuildOnChanged(prev: unknown[] | undefined, next: unknown[] | undefin
 // Lifecycle processors
 // ========================================
 function commitModuleResolution(resolution: ModuleResolution): void {
-    if (!resolution.owned) return
     resolution.container.resolve(ModuleLifecycle).commit()
 }
 
 function scheduleModuleResolutionTeardown(resolution: ModuleResolution): void {
-    if (!resolution.owned) return
     resolution.container.resolve(ModuleLifecycle).scheduleTeardown()
 }

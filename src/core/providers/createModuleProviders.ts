@@ -20,13 +20,6 @@ export type ModuleProviders = {
     providers: Provider[]
 }
 
-/**
- * Build the system services for an owned module and their provider descriptors, registered on every
- * owned module container: the resolver, the pure data record (ModuleMetadata), the structure service
- * (ModuleRegistry), and the lifecycle orchestrator. `Resolver` binds to the nearest owned module's
- * container — unowned/inherit-mode modules are transparent to it. Listed before user providers so an
- * explicit `Resolver` override still wins.
- */
 export function createModuleProviders(params: ModuleProvidersParams): ModuleProviders {
     const { id, container, parent } = params
 

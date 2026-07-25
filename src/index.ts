@@ -13,7 +13,6 @@ export {
     Scope,
     SingletonFactory,
     ConditionalFactory,
-    ScopedFactory,
 } from "./aliases/index.js"
 
 // Module resolution - Provider, Factory

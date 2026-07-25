@@ -6,7 +6,7 @@ import type { Provider } from "../providers/providers.types.js"
 // Module parameters
 // ========================================
 
-type OwnedModuleParams = {
+type BaseModuleParams = {
     id?: string
     providers?: Provider[]
     rebuildOn?: unknown[]
@@ -14,41 +14,25 @@ type OwnedModuleParams = {
 
 export type RootModuleParams = {
     root: true
-    container?: never
     factory?: never
-} & OwnedModuleParams
+    container?: never
+} & BaseModuleParams
 
 export type FactoryModuleParams = {
     factory: () => DependencyContainer
     root?: never
     container?: never
-} & OwnedModuleParams
+} & BaseModuleParams
 
 export type ScopedModuleParams = {
     root?: never
+    factory?: never
     container?: never
-    factory?: never
-} & OwnedModuleParams
+} & BaseModuleParams
 
-export type InheritModuleParams = {
-    container: DependencyContainer
-    root?: never
-    factory?: never
-
-    id?: never
-    providers?: never
-    rebuildOn?: never
-
-    onModuleInit?: never
-    onModuleMount?: never
-    onModuleUnmount?: never
-    onModuleDestroy?: never
-}
-
-export type ModuleResolutionParams = RootModuleParams | FactoryModuleParams | ScopedModuleParams | InheritModuleParams
+export type ModuleResolutionParams = RootModuleParams | FactoryModuleParams | ScopedModuleParams
 
 export type ModuleResolution = {
     container: DependencyContainer
-    owned: boolean
     id: string
 }

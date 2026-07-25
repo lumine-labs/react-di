@@ -13,8 +13,9 @@ import { useModuleContext } from "../../src/react/hooks/useModuleContext"
 // Shared recorded log across the tree.
 let log: string[] = []
 
-// LogModule always supplies the lifecycle hooks, so it only models the hook-bearing (owned)
-// branches of the discriminated union — never the inherit/container branch, which forbids them.
+// Spelled out rather than written as `ModuleResolutionParams` so that a new branch added to the union
+// has to be considered here explicitly: LogModule always supplies the lifecycle hooks, and every mode
+// it models must accept them.
 type LogModuleParams = RootModuleParams | FactoryModuleParams | ScopedModuleParams
 
 type LogModuleProps = LogModuleParams & {

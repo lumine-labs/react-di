@@ -14,11 +14,10 @@ export function ModuleProvider({ children, ...moduleParams }: ModuleProviderProp
     const value = useMemo(
         () => ({
             container: module.container,
-            owned: module.owned,
             id: module.id,
             rebuild: module.rebuild,
         }),
-        [module.container, module.owned, module.id, module.rebuild]
+        [module.container, module.id, module.rebuild]
     )
 
     return <ModuleContext.Provider value={value}>{children}</ModuleContext.Provider>

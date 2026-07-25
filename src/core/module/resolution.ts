@@ -13,14 +13,8 @@ export function createModuleResolution(
 ): ModuleResolution {
     validateParams(params)
 
-    const { container, owned } = resolveContainer(parent, params)
-    if (!owned) {
-        // An inherit module is a window onto an existing container: if that container's chain carries an
-        // owned ancestor's ModuleMetadata, share its id (honest — same container, same identity). A bare
-        // external container has no metadata in its chain, so fall back to a per-resolution generated id.
-        const metadata = tryResolve(container, ModuleMetadata)
-        return { container, owned, id: metadata?.id ?? id() }
-    }
+    const container = resolveContainer(parent, params)
+    assertContainerIsFree(container)
 
     // User-supplied ids are the addressable, rebuild-stable identity — params re-deliver the same string
     // on every render. A generated id is a per-resolution debug label: fresh on each rebuild, but since it
@@ -44,19 +38,15 @@ export function createModuleResolution(
         throw error
     }
 
-    return { container, owned, id: moduleId }
+    return { container, id: moduleId }
 }
 
 export function resolveContainer(
     parent: DependencyContainer | null,
     params?: ModuleResolutionParams
-): Pick<ModuleResolution, "container" | "owned"> {
+): DependencyContainer {
     if (params?.root) {
-        return { container: Container.createChildContainer(), owned: true as const }
-    }
-
-    if (params?.container) {
-        return { container: params.container, owned: false as const }
+        return Container.createChildContainer()
     }
 
     if (params?.factory) {
@@ -64,39 +54,35 @@ export function resolveContainer(
         if (!container) {
             throw new Error("factory() returned falsy.")
         }
-        return { container, owned: true as const }
+        return container
     }
 
     if (!parent) {
-        throw new Error(
-            "No parent container in context. Provide `root`, `factory` for root, or `container` to inherit."
-        )
+        throw new Error("No parent container in context. Provide `root` or `factory` for a root module.")
     }
 
-    return { container: parent.createChildContainer(), owned: true as const }
+    return parent.createChildContainer()
 }
 
 export function validateParams(params?: ModuleResolutionParams): void {
-    if (params?.container) {
-        const checkMap = {
-            id: !!(params as any)?.id,
-            providers: !!params?.providers,
-            rebuildOn: !!(params as any)?.rebuildOn,
-            onModuleInit: !!params?.onModuleInit,
-            onModuleMount: !!params?.onModuleMount,
-            onModuleUnmount: !!params?.onModuleUnmount,
-            onModuleDestroy: !!params?.onModuleDestroy,
-        }
-        const keys = Object.keys(checkMap) as (keyof typeof checkMap)[]
-        const conflictKeys = keys.filter((key) => checkMap[key])
-        if (conflictKeys.length) {
-            const conflictKeysStr = conflictKeys.map((key) => `\`${key}\``).join(", ")
-            const verb = conflictKeys.length === 1 ? "is" : "are"
-            throw new Error(`${conflictKeysStr} ${verb} not allowed when inheriting from a container.`)
-        }
+    if (params?.root && params.factory) {
+        throw new Error("`root` cannot be used with `factory`.")
     }
+}
 
-    if (params?.root && ((params as any).container || (params as any).factory)) {
-        throw new Error("`root` cannot be used with `container` or `factory`.")
-    }
+/**
+ * One container = one module. `root` and scoped modes always mint a fresh child container, so in
+ * practice only `factory` can hand back a container that is already somebody's module.
+ *
+ * The registration check is non-recursive on purpose: a scoped child container resolves its parent's
+ * `ModuleMetadata` through the chain, which is correct and must not be mistaken for a claim. Only a
+ * registration made directly on this container means "this container is already a module".
+ */
+function assertContainerIsFree(container: DependencyContainer): void {
+    const existing = tryResolve(container, ModuleMetadata, false)
+    if (!existing) return
+
+    throw new Error(
+        `Container already belongs to module "${existing.id}". One container = one module — give \`factory\` a fresh container, or drop \`factory\` to create a scoped child.`
+    )
 }

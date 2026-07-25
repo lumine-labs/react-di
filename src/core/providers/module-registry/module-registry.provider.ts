@@ -14,8 +14,8 @@ export class ModuleRegistry {
     constructor(private readonly metadata: ModuleMetadata) {}
 
     /**
-     * Add own container to the lifecycle parent's children set. Idempotent (Set). No resolvable parent
-     * metadata (root, or a transparent chain with no owned ancestor) → no-op.
+     * Add own container to the lifecycle parent's children set. Idempotent (Set). No parent metadata
+     * (a lifecycle root) → no-op.
      */
     attach(): void {
         const parent = this.parentMetadata()
@@ -33,10 +33,7 @@ export class ModuleRegistry {
         parent.removeChild(this.metadata.container)
     }
 
-    /**
-     * Resolve the lifecycle parent's `ModuleMetadata` from the parent container (recursive — skips
-     * transparent unowned levels to the nearest owned ancestor). `null` at a lifecycle root.
-     */
+    /** The lifecycle parent's own `ModuleMetadata`. `null` at a lifecycle root. */
     parentMetadata(): ModuleMetadata | null {
         return resolveMetadata(this.metadata.parent)
     }
@@ -44,12 +41,12 @@ export class ModuleRegistry {
     /** Metadata of each attached child, in insertion (commit) order. */
     *childrenMetadata(): IterableIterator<ModuleMetadata> {
         for (const container of this.metadata.children) {
-            const child = resolveOwnMetadata(container)
+            const child = resolveMetadata(container)
             if (child) yield child
         }
     }
 
-    /** Walk the ancestor chain (nearest owned parent first), excluding self. */
+    /** Walk the ancestor chain (nearest parent first), excluding self. */
     *ancestors(): IterableIterator<ModuleMetadata> {
         let current = this.parentMetadata()
         while (current) {
@@ -73,17 +70,15 @@ export class ModuleRegistry {
 // Helpers
 // ========================================
 
+/**
+ * The `ModuleMetadata` a container registers itself, or `null`.
+ *
+ * Non-recursive, and that is the whole point: one container = one module, so the metadata a container
+ * holds directly IS its module. A chain lookup would happily walk out of a plain tsyringe child
+ * container into the enclosing module and report someone else's node as this one's.
+ */
 function resolveMetadata(container: DependencyContainer | null): ModuleMetadata | null {
     if (!container) return null
-    try {
-        if (!container.isRegistered(ModuleMetadata, true)) return null
-        return container.resolve(ModuleMetadata)
-    } catch {
-        return null
-    }
-}
-
-function resolveOwnMetadata(container: DependencyContainer): ModuleMetadata | null {
     try {
         if (!container.isRegistered(ModuleMetadata, false)) return null
         return container.resolve(ModuleMetadata)

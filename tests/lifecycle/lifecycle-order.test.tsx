@@ -90,49 +90,34 @@ describe("module lifecycle order", () => {
         ])
     })
 
-    it("rejects lifecycle hooks in inherit mode", () => {
-        const onModuleInit = vi.fn()
-        const onModuleMount = vi.fn()
-        const onModuleUnmount = vi.fn()
-        const onModuleDestroy = vi.fn()
+    // `container` is not a module parameter at all — the compile error is pinned in
+    // tests/module/container-invariant.test.tsx. What this file still owes is the lifecycle side: hooks
+    // are always honoured, because every module owns its container and therefore has a lifecycle.
+    it("runs lifecycle hooks for a module built from an external container via factory", async () => {
+        const external = Container.createChildContainer()
+        const seen: string[] = []
 
-        const inherited = Container.createChildContainer()
+        const view = render(
+            <ModuleProvider
+                factory={() => external}
+                onModuleInit={() => seen.push("init")}
+                onModuleMount={() => seen.push("mount")}
+                onModuleUnmount={() => seen.push("unmount")}
+                onModuleDestroy={() => seen.push("destroy")}
+            >
+                <div />
+            </ModuleProvider>
+        )
 
-        expect(() =>
-            render(
-                <ModuleProvider
-                    {...({
-                        container: inherited,
-                        onModuleInit,
-                        onModuleMount,
-                        onModuleUnmount,
-                        onModuleDestroy,
-                    } as any)}
-                >
-                    <div />
-                </ModuleProvider>
-            )
-        ).toThrowError(/not allowed when inheriting from a container/)
+        expect(seen).toEqual(["init", "mount"])
+
+        view.unmount()
+        await vi.runAllTimersAsync()
+
+        expect(seen).toEqual(["init", "mount", "unmount", "destroy"])
     })
 
-    it("rejects rebuildOn in inherit mode", () => {
-        const inherited = Container.createChildContainer()
-
-        expect(() =>
-            render(
-                <ModuleProvider
-                    {...({
-                        container: inherited,
-                        rebuildOn: [1],
-                    } as any)}
-                >
-                    <div />
-                </ModuleProvider>
-            )
-        ).toThrowError(/not allowed when inheriting from a container/)
-    })
-
-    it("disposes owned container when provider init lifecycle throws", () => {
+    it("disposes the module's container when provider init lifecycle throws", () => {
         const disposeSpy = vi.fn()
         const factory = () => {
             const container = Container.createChildContainer()

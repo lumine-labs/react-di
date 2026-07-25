@@ -55,9 +55,6 @@ export function resolveOr<T, F>(
 // Error messages
 // ========================================
 
-// Production ships the token description and nothing else. Development adds the two facts that turn
-// "something is missing" into a fix: WHICH module the lookup started from, and HOW FAR it looked —
-// a non-recursive miss stops at the module itself and never reaches an ancestor that has the token.
 function notRegisteredMessage(container: DependencyContainer, token: InjectionToken<any>, recursive: boolean): string {
     const description = describeToken(token)
 
@@ -78,9 +75,6 @@ function notRegisteredMessage(container: DependencyContainer, token: InjectionTo
     return `Token ${description} is not registered.`
 }
 
-// Best-effort context on an already-failing path: an inherited or bare container carries no
-// ModuleMetadata at all, and a disposed one throws on lookup. Either way the caller must get its
-// original "not registered" error, never a failure raised while building the message.
 function tryModuleId(container: DependencyContainer): string | undefined {
     try {
         return tryResolve(container, ModuleMetadata)?.id

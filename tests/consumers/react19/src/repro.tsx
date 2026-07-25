@@ -40,7 +40,6 @@ import {
     PropsRef,
     Resolver,
     Scope,
-    ScopedFactory,
     Singleton,
     SingletonFactory,
     Token,
@@ -76,7 +75,6 @@ import type {
     FactoryModuleParams,
     FactoryProvider,
     Frequency,
-    InheritModuleParams,
     InjectionToken,
     ModuleContextValue,
     ModuleHook,
@@ -335,9 +333,8 @@ const factoryProvider: FactoryProvider<Logger> = {
 // 5. existing provider (alias onto an already-registered token)
 const existingProvider: ExistingProvider<Logger> = { provide: FEATURE_LOGGER, useExisting: LOGGER }
 
-// Factory helpers, cached in the three ways tsyringe offers.
-const cachedLogger = SingletonFactory(() => new ConsoleLogger("cached "))
-const perContainerLogger = ScopedFactory((container) => {
+// Factory helpers, cached in the two ways the package re-exports.
+const cachedLogger = SingletonFactory((container) => {
     type _FactoryContainer = Expect<Equals<typeof container, DependencyContainer>>
     return new ConsoleLogger(`${String(container.isRegistered(CONFIG))} `)
 })
@@ -350,9 +347,17 @@ const cachedLoggerProvider: FactoryProvider<Logger> = { provide: LOGGER, useFact
 const classProviderWithInject: ClassProvider<UserStore> = { provide: UserStore, useClass: UserStore, inject: [CONFIG] }
 void classProviderWithInject
 
-// @ts-expect-error a factory provider may not be resolution-scoped.
+// @ts-expect-error `resolutionScoped` is not part of the scope model.
 const resolutionScopedFactory: FactoryProvider<Logger> = { provide: LOGGER, useFactory: cachedLogger, scope: "resolutionScoped" }
 void resolutionScopedFactory
+
+// @ts-expect-error `containerScoped` is not part of the scope model.
+const containerScopedClass: ClassProvider<UserStore> = { provide: UserStore, useClass: UserStore, scope: "containerScoped" }
+void containerScopedClass
+
+// @ts-expect-error the scope model is exactly `singleton | transient` (plus the raw `Scope.*` values).
+const removedScope: ProviderScope = "containerScoped"
+void removedScope
 
 // @ts-expect-error `useValue` must match the token's type.
 const mistypedValueProvider: ValueProvider<AppConfig> = { provide: CONFIG, useValue: { baseUrl: "x" } }
@@ -445,7 +450,6 @@ const createParams: CreateModuleParams<UserProps> = (props) => ({ id: `user-${pr
 const rootParams: RootModuleParams = { root: true, providers: [ApiClient] }
 const scopedParams: ScopedModuleParams = { providers: [ApiClient], rebuildOn: [1, "a"] }
 const factoryParams: FactoryModuleParams = { factory: () => Container.createChildContainer(), providers: [ApiClient] }
-const inheritParams: InheritModuleParams = { container: Container.createChildContainer() }
 const resolutionParams: ModuleResolutionParams = rootParams
 const providerProps: ModuleProviderProps = { root: true, providers: [ApiClient], children: null }
 
@@ -453,16 +457,29 @@ const moduleHook: ModuleHook = (container) => {
     type _ModuleHookContainer = Expect<Equals<typeof container, DependencyContainer>>
     void container
 }
+
 const moduleHooks: ModuleHooks = { onModuleInit: moduleHook, onModuleDestroy: moduleHook }
 
 declare const someResolution: ModuleResolution
-type _ModuleResolutionShape = Expect<
-    Equals<typeof someResolution, { container: DependencyContainer; owned: boolean; id: string }>
->
+type _ModuleResolutionShape = Expect<Equals<typeof someResolution, { container: DependencyContainer; id: string }>>
 
-// @ts-expect-error inherit mode owns nothing, so it cannot declare providers.
-const inheritWithProviders: InheritModuleParams = { container: Container.createChildContainer(), providers: [ApiClient] }
-void inheritWithProviders
+// One container = one module: `container` is not a module parameter in any mode, so a module can never
+// be pointed at somebody else's container. These directives are the regression guard — if the key ever
+// becomes assignable again, TypeScript reports each one as unused and this file stops compiling.
+
+// @ts-expect-error `container` is not a module parameter.
+const containerParams: ModuleResolutionParams = { container: Container.createChildContainer() }
+void containerParams
+
+// Not merely an excess-property error on a fresh literal: it must fail for an object that already
+// partially matches the (otherwise weak) scoped params type too.
+// @ts-expect-error `container` is not a module parameter, and a known key alongside it does not help.
+const containerWithKnownKey: ModuleResolutionParams = { id: "x", container: Container.createChildContainer() }
+void containerWithKnownKey
+
+// @ts-expect-error a scoped module has no `container` either.
+const scopedWithContainer: ScopedModuleParams = { container: Container.createChildContainer() }
+void scopedWithContainer
 
 // @ts-expect-error root and factory modes are mutually exclusive.
 const rootWithFactory: RootModuleParams = { root: true, factory: () => Container.createChildContainer() }
@@ -498,7 +515,6 @@ export const consumerToken = makeTokenizer("@consumer")
 
 export type ModuleContextShape = {
     container: DependencyContainer
-    owned: boolean
     id: string
     rebuild: () => void
 }
@@ -588,7 +604,7 @@ function UserView(): ReactElement {
     const moduleContext = useModuleContext()
     type _UseModuleContext = Expect<Equals<typeof moduleContext, ModuleContextValue>>
     type _ModuleContextShape = Expect<
-        Equals<ModuleContextValue, { container: DependencyContainer; owned: boolean; id: string; rebuild: () => void }>
+        Equals<ModuleContextValue, { container: DependencyContainer; id: string; rebuild: () => void }>
     >
 
     // @ts-expect-error resolution is typed by the token — `nope` does not exist on UserStore.
@@ -602,7 +618,7 @@ function UserView(): ReactElement {
             {maybeStore ? "y" : "n"}
             {firstPlugin?.name ?? ""}
             {registries.length}
-            {moduleContext.owned ? moduleContext.id : ""}
+            {moduleContext.id}
             {String(container.isRegistered(UserStore))}
         </button>
     )
@@ -661,22 +677,20 @@ function RebuildingModule({ children }: { children?: ReactNode }): ReactElement 
 function ManualModule({ children }: { children?: ReactNode }): ReactElement {
     const module = useModule(scopedParams)
     type _UseModuleResult = Expect<
-        Equals<typeof module, { container: DependencyContainer; owned: boolean; id: string; rebuild: () => void }>
+        Equals<typeof module, { container: DependencyContainer; id: string; rebuild: () => void }>
     >
 
     return <div data-module={module.id}>{children}</div>
 }
 
-// ModuleProvider — root, scoped and container modes.
+// ModuleProvider — root, scoped and factory modes.
 // ========================================
-
-const inheritedContainer: DependencyContainer = Container.createChildContainer()
 
 export function App(): ReactElement {
     return (
-        // root mode: an owned container detached from any ancestor.
+        // root mode: a fresh container detached from any ancestor.
         <ModuleProvider root id="app-root" providers={moduleProviders} onModuleInit={moduleHook}>
-            {/* scoped mode (the default): an owned child of the enclosing module. */}
+            {/* scoped mode (the default): a fresh child container under the enclosing module. */}
             <ModuleProvider providers={[classProvider, existingProvider]} rebuildOn={["tenant-a"]}>
                 <UserModule userId="u-1" limit={25}>
                     <UserPanel userId="u-1" limit={25} />
@@ -697,12 +711,7 @@ export function App(): ReactElement {
                 </BareModule>
             </ModuleProvider>
 
-            {/* container mode: an externally owned container, inherited and never disposed by us. */}
-            <ModuleProvider container={inheritedContainer}>
-                <UserView />
-            </ModuleProvider>
-
-            {/* factory mode */}
+            {/* factory mode: the module adopts and owns the container the factory builds. */}
             <ModuleProvider factory={() => Container.createChildContainer()} providers={[ApiClient]}>
                 <UserView />
             </ModuleProvider>
@@ -710,17 +719,26 @@ export function App(): ReactElement {
     )
 }
 
-// @ts-expect-error inherit mode cannot also declare providers.
-const inheritProviderElement = <ModuleProvider container={inheritedContainer} providers={[ApiClient]} />
-void inheritProviderElement
+// `container` is not a prop. The trap this guards against: TypeScript's excess-property check against a
+// union accepts any key present in ANY member, so the key has to be absent-or-`never` in ALL of them.
 
-// @ts-expect-error root mode cannot also inherit a container.
-const rootContainerElement = <ModuleProvider root container={inheritedContainer} />
+const externalContainer: DependencyContainer = Container.createChildContainer()
+
+// @ts-expect-error `container` is not a module prop — one container = one module.
+const containerElement = <ModuleProvider container={externalContainer} />
+void containerElement
+
+// @ts-expect-error still not a prop next to a valid one.
+const containerWithProvidersElement = <ModuleProvider container={externalContainer} providers={[ApiClient]} />
+void containerWithProvidersElement
+
+// @ts-expect-error not a prop in root mode either.
+const rootContainerElement = <ModuleProvider root container={externalContainer} />
 void rootContainerElement
 
-// @ts-expect-error inherit mode has no lifecycle hooks of its own.
-const inheritHookElement = <ModuleProvider container={inheritedContainer} onModuleInit={moduleHook} />
-void inheritHookElement
+// @ts-expect-error the JSX spread path must reject it too.
+const spreadContainerElement = <ModuleProvider {...{ container: externalContainer }} />
+void spreadContainerElement
 
 // Container utilities — the same resolution semantics outside React.
 // ========================================
@@ -769,8 +787,6 @@ type _ScopeValues = Expect<
         {
             readonly Transient: typeof Scope.Transient
             readonly Singleton: typeof Scope.Singleton
-            readonly ResolutionScoped: typeof Scope.ResolutionScoped
-            readonly ContainerScoped: typeof Scope.ContainerScoped
         }
     >
 >
@@ -788,7 +804,6 @@ const aliasSurface = [
     Scope,
     SingletonFactory,
     ConditionalFactory,
-    ScopedFactory,
 ] as const
 
 // The `./types` subpath must carry the entire public type surface. Every exported name is referenced
@@ -801,7 +816,6 @@ type PublicTypeSurface = [
     Frequency,
     Disposable,
     RootModuleParams,
-    InheritModuleParams,
     FactoryModuleParams,
     ScopedModuleParams,
     ModuleResolutionParams,
@@ -829,7 +843,8 @@ type PublicTypeSurface = [
     Tokenizer,
     Constructor<ApiClient>,
 ]
-type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 33>>
+// 33 → 32: `InheritModuleParams` left with the removal of container adoption — one container = one module.
+type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 32>>
 
 // Keep the module-scope constants that exist only to be typechecked from being flagged as dead by a
 // future `noUnusedLocals`, and give the file a single exported value to hang everything on.
@@ -842,9 +857,7 @@ export const consumerSurface = {
     factoryParams,
     frequency,
     globalContainer,
-    inheritParams,
     moduleHooks,
-    perContainerLogger,
     providerProps,
     registrationOptions,
     resolutionParams,
