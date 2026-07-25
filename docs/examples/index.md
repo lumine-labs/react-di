@@ -1,12 +1,12 @@
 # Examples
 
-This section shows practical patterns built with current `@lumelabs/react-di` API.
+This section shows practical patterns built with current `@luminelabs/react-di` API.
 
 ## Root Module + Resolve
 
 ```tsx
 import "reflect-metadata"
-import { Injectable, ModuleProvider, useResolve } from "@lumelabs/react-di"
+import { Injectable, ModuleProvider, useResolve } from "@luminelabs/react-di"
 
 @Injectable()
 class UserService {
@@ -44,7 +44,7 @@ const API_URL = Symbol("API_URL")
 ## Module Lifecycle Provider
 
 ```ts
-import { Injectable, type ProviderLifecycle } from "@lumelabs/react-di"
+import { Injectable, type ProviderLifecycle } from "@luminelabs/react-di"
 
 @Injectable()
 class SocketService implements ProviderLifecycle {
@@ -61,7 +61,7 @@ class SocketService implements ProviderLifecycle {
 ## Async Teardown with Priority
 
 ```tsx
-import { AsyncTeardown, ModuleProvider, useAsyncTeardown } from "@lumelabs/react-di"
+import { AsyncTeardown, ModuleProvider, useAsyncTeardown } from "@luminelabs/react-di"
 
 function Feature() {
     useAsyncTeardown(async () => {
@@ -83,7 +83,7 @@ function Feature() {
 ## Custom Tokenizer Namespace
 
 ```ts
-import { makeTokenizer } from "@lumelabs/react-di"
+import { makeTokenizer } from "@luminelabs/react-di"
 
 const AppToken = makeTokenizer("@app")
 export const API_URL = AppToken<string>("API_URL")

@@ -1,0 +1,41 @@
+{
+    // Consumer profile A: bundler app (Vite/Next-style).
+    //
+    //   - moduleResolution bundler   -> exports-map subpaths are read the bundler way, not Node's
+    //   - @types/react 18            -> the lower bound of the declared peer range
+    //   - flags stricter than the package's own tsconfig (see below)
+    //
+    // Deliberately NOT extending any tsconfig of the package: a consumer shares nothing with us but
+    // the published `dist`.
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ES2022", "DOM", "DOM.Iterable"],
+        "jsx": "react-jsx",
+
+        // tsyringe-style DI: the documented consumer setup.
+        "experimentalDecorators": true,
+        "emitDecoratorMetadata": true,
+
+        // Stricter than the package builds itself with — that is the point of this gate.
+        "strict": true,
+        "exactOptionalPropertyTypes": true,
+        "noUncheckedIndexedAccess": true,
+
+        // Our own declarations must be checked, but node_modules is skipped the way real apps do it.
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "isolatedModules": true,
+        "verbatimModuleSyntax": true,
+
+        // No ambient @types are pulled in implicitly; everything must come through imports.
+        "types": [],
+
+        // Typecheck only. `declaration` is kept on so that any declaration-emit-only diagnostic
+        // (TS2742 and friends) is computed for this program too.
+        "declaration": true,
+        "noEmit": true
+    },
+    "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

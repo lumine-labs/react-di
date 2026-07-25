@@ -130,6 +130,11 @@ describe("resolver hooks", () => {
             return null
         }
 
+        // The child module is the search scope and the message names it: a non-recursive miss stops
+        // there and never sees the parent's ServiceA.
+        const message =
+            /^Token ServiceA is not registered in module "id:\d+" \(searched that module only\)\.$/
+
         expect(() =>
             render(
                 <ModuleProvider root providers={[ServiceA]}>
@@ -138,7 +143,7 @@ describe("resolver hooks", () => {
                     </ModuleProvider>
                 </ModuleProvider>
             )
-        ).toThrowError(/current module container/)
+        ).toThrowError(message)
     })
 })
 

@@ -1,10 +1,10 @@
-# @lumelabs/react-di
+# @luminelabs/react-di
 
 [Documentation (WIP)](https://lumine-labs.github.io/react-di/)
 
 Dependency Injection for React, built on top of `tsyringe`.
 
-`@lumelabs/react-di` brings module-oriented DI into React applications: containers, module boundaries, subtree scoping, and predictable lifecycle orchestration for services.
+`@luminelabs/react-di` brings module-oriented DI into React applications: containers, module boundaries, subtree scoping, and predictable lifecycle orchestration for services.
 
 ## Why This Library Exists
 

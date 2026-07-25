@@ -1,6 +1,6 @@
 # Reasoning
 
-`@lumelabs/react-di` exists to solve dependency graph composition in React applications where plain Context wiring becomes hard to scale.
+`@luminelabs/react-di` exists to solve dependency graph composition in React applications where plain Context wiring becomes hard to scale.
 
 ## Why not only Context
 

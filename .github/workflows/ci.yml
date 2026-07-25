@@ -20,3 +20,6 @@ jobs:
             - run: npm run typecheck:tests
             - run: npm run test
             - run: npm run build
+            # Typechecks the built dist/*.d.ts from two throwaway consumer projects
+            # (@types/react 18 + bundler, @types/react 19 + NodeNext). Must follow build.
+            - run: npm run typecheck:consumers

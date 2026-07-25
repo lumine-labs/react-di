@@ -55,7 +55,7 @@ export { makeTokenizer, Token } from "./core/tokenizer/tokenizer.js"
 // Utils
 // ========================================
 
-export { resolve, tryResolve, resolveAll, resolveOr } from "./shared/container-utils.js"
+export { resolve, tryResolve, resolveAll, resolveOr } from "./core/resolve.js"
 
 // Public types
 // ========================================

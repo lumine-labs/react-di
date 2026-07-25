@@ -1,4 +1,4 @@
-import { shallowEqual } from "@lumelabs/toolkit"
+import { shallowEqual } from "@luminelabs/toolkit"
 
 // Types
 // ========================================

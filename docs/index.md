@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-    name: "@lumelabs/react-di"
+    name: "@luminelabs/react-di"
     text: "Module-oriented DI for React"
     tagline: "Built on tsyringe with nested module scopes, provider lifecycle, and explicit dependency graphs."
     actions:

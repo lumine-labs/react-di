@@ -1,0 +1,19 @@
+{
+    "name": "react-di-consumer-react19",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Type-regression consumer: NodeNext resolution against @types/react 19. Typecheck-only.",
+    "scripts": {
+        "typecheck": "tsc -p tsconfig.json"
+    },
+    "dependencies": {
+        "@luminelabs/react-di": "file:../../..",
+        "react": "^19.0.0",
+        "reflect-metadata": "^0.2.2"
+    },
+    "devDependencies": {
+        "@types/react": "^19.0.0",
+        "typescript": "^5.9.3"
+    }
+}

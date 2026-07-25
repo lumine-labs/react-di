@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-npm i @lumelabs/react-di
+npm i @luminelabs/react-di
 ```
 
 ## Prerequisite
@@ -16,7 +16,7 @@ import "reflect-metadata"
 
 ```tsx
 import "reflect-metadata"
-import { Inject, Injectable, ModuleProvider, useResolve } from "@lumelabs/react-di"
+import { Inject, Injectable, ModuleProvider, useResolve } from "@luminelabs/react-di"
 
 @Injectable()
 class ApiClient {

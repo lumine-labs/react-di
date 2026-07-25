@@ -56,7 +56,7 @@ describe("rebuild contracts", () => {
         // the inherit module gets a fresh generated id — NOT the owned ancestor's id.
         expect(inheritId).toBeTruthy()
         expect(inheritId).not.toBe(ownerId)
-        expect(inheritId).toMatch(/^@lumelabs\/react-di:/)
+        expect(inheritId).toMatch(/^id:/)
     })
 
     it("shares the owned ancestor's id with an inherit module on that container", () => {

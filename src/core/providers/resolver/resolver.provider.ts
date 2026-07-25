@@ -1,5 +1,5 @@
 import type { DependencyContainer, InjectionToken } from "../../../aliases/index.js"
-import { resolve, tryResolve } from "../../../shared/container-utils.js"
+import { resolve, tryResolve } from "../../resolve.js"
 
 export class Resolver {
     constructor(private readonly container: DependencyContainer) {}

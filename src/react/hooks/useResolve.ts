@@ -1,8 +1,8 @@
-import { useLazyRef } from "@lumelabs/react-toolkit"
-import { type DependencyContainer, type InjectionToken } from "../../aliases/index.js"
+import { useLazyRef } from "@luminelabs/react-toolkit"
+import type { DependencyContainer, InjectionToken } from "../../aliases/index.js"
 
 import { useContainer } from "./useModuleContext.js"
-import { resolve, tryResolve } from "../../shared/container-utils.js"
+import { resolve, tryResolve } from "../../core/resolve.js"
 
 // Types
 // ========================================

@@ -1,5 +1,5 @@
 import React from "react"
-import { useEvent } from "@lumelabs/react-toolkit"
+import { useEvent } from "@luminelabs/react-toolkit"
 
 import { AsyncTeardown, type CleanupFn } from "../../core/providers/async-teardown/async-teardown.provider.js"
 import { useResolve } from "./useResolve.js"

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { useIsomorphicLayoutEffect } from "@lumelabs/react-toolkit"
+import { useIsomorphicLayoutEffect } from "@luminelabs/react-toolkit"
 
 import type { InjectionToken } from "../../aliases/index.js"
 import type { ValueProvider } from "../../core/providers/providers.types.js"

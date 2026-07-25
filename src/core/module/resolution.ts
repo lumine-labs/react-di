@@ -4,7 +4,7 @@ import type { ModuleResolution, ModuleResolutionParams } from "./resolution.type
 import { createModuleProviders } from "../providers/createModuleProviders.js"
 import { ModuleMetadata } from "../providers/module-metadata/module-metadata.provider.js"
 import { registerProviders } from "../providers/providers.js"
-import { tryResolve } from "../../shared/container-utils.js"
+import { tryResolve } from "../resolve.js"
 import { id } from "./id.js"
 
 export function createModuleResolution(

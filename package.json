@@ -1,9 +1,9 @@
 {
-    "name": "@lumelabs/react-di",
-    "version": "0.3.0",
+    "name": "@luminelabs/react-di",
+    "version": "0.3.1",
     "description": "Non-reactive dependency injection library for React built on top of tsyringe with immutable module scopes.",
     "license": "MIT",
-    "author": "Egor Arkhipov (Lumelabs)",
+    "author": "Egor Arkhipov (Lumine Labs)",
     "repository": {
         "type": "git",
         "url": "https://github.com/lumine-labs/react-di"
@@ -53,6 +53,7 @@
         "clean": "rimraf dist",
         "typecheck": "tsc -p tsconfig.json --noEmit",
         "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
+        "typecheck:consumers": "node ./tests/consumers/run.mjs",
         "build": "npm run clean && tsc -p tsconfig.build.json",
         "test": "vitest run",
         "test:watch": "vitest",
@@ -67,12 +68,12 @@
         "react": "^18.0.0 || ^19.0.0"
     },
     "dependencies": {
-        "@lumelabs/react-toolkit": "^0.1.1",
-        "@lumelabs/toolkit": "^0.1.1",
+        "@luminelabs/react-toolkit": "^0.1.1",
+        "@luminelabs/toolkit": "^0.1.1",
         "tsyringe": "^4.0.0"
     },
     "devDependencies": {
-        "@lumelabs/eslint-config": "^0.4.1",
+        "@luminelabs/eslint-config": "^0.4.1",
         "@testing-library/jest-dom": "^6.9.1",
         "@testing-library/react": "^16.3.2",
         "@types/node": "^25.5.0",

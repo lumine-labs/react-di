@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState } from "react"
-import { useEvent, useIsomorphicLayoutEffect, useScheduleLayoutEffect } from "@lumelabs/react-toolkit"
+import { useEvent, useIsomorphicLayoutEffect, useScheduleLayoutEffect } from "@luminelabs/react-toolkit"
 import type { DependencyContainer } from "../../aliases/index.js"
 
 import type { ModuleResolution, ModuleResolutionParams } from "../../core/module/resolution.types.js"

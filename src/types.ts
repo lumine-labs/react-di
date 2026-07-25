@@ -40,6 +40,8 @@ export type {
 } from "./core/providers/providers.types.js"
 export type { CleanupFn } from "./core/providers/async-teardown/async-teardown.provider.js"
 
+export type { ProviderScope } from "./core/providers/providers.types.js"
+
 // Props bridge types
 // ========================================
 
@@ -49,12 +51,14 @@ export type { PropsAdapter } from "./core/providers/props-ref/props-ref.provider
 // ========================================
 
 export type { ModuleProviderProps } from "./react/providers/ModuleProvider.js"
-export type { CreateModuleParams } from "./react/factories/createModule.js"
+export type { CreateModuleParams, CreateModuleOptions } from "./react/factories/createModule.js"
+export type { ModuleContextValue } from "./react/context/ModuleContext.js"
+export type { UsePropsRefOptions, UsePropsRefResult } from "./react/hooks/usePropsRef.js"
 
 // Tokenizer types
 // ========================================
 
-export type { TokenOptions } from "./core/tokenizer/tokenizer.js"
+export type { TokenOptions, Tokenizer } from "./core/tokenizer/tokenizer.js"
 
 // Shared types
 // ========================================
