@@ -71,6 +71,7 @@
     "dependencies": {
         "@luminelabs/react-toolkit": "^0.1.1",
         "@luminelabs/toolkit": "^0.1.1",
+        "inversify": "^8.2.3",
         "tsyringe": "^4.0.0"
     },
     "devDependencies": {
