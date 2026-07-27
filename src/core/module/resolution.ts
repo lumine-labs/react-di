@@ -1,52 +1,50 @@
-import { Container, type DependencyContainer } from "../../aliases/index.js"
-
+import { Container } from "../../container/index.js"
 import type { ModuleResolution, ModuleResolutionParams } from "./resolution.types.js"
-import { createModuleProviders } from "../providers/createModuleProviders.js"
-import { ModuleMetadata } from "../providers/module-metadata/module-metadata.provider.js"
-import { registerProviders } from "../providers/providers.js"
-import { tryResolve } from "../resolve.js"
 import { id } from "./id.js"
 
-export function createModuleResolution(
-    parent: DependencyContainer | null,
-    params?: ModuleResolutionParams
-): ModuleResolution {
-    validateParams(params)
+import { createModuleProviders } from "../providers/createModuleProviders.js"
+import { ModuleMetadata } from "../providers/module-metadata/module-metadata.provider.js"
 
+export function createModuleResolution(parent: Container | null, params?: ModuleResolutionParams): ModuleResolution {
+    assertParams(params)
+
+    // Build new container
     const container = resolveContainer(parent, params)
     assertContainerIsFree(container)
 
-    // User-supplied ids are the addressable, rebuild-stable identity — params re-deliver the same string
-    // on every render. A generated id is a per-resolution debug label: fresh on each rebuild, but since it
-    // is unaddressable (nothing can look a module up by it), that instability is unobservable.
+    // Prepare providers
     const moduleId = params?.id ?? id()
-
-    const { metadata, providers: moduleProviders } = createModuleProviders({ id: moduleId, container, parent })
+    const {
+        metadata,
+        lifecycle,
+        providers: moduleProviders,
+    } = createModuleProviders({ id: moduleId, container, parent: isRootModule(params) ? null : parent })
     const userProviders = params?.providers ?? []
-    const providers = [...moduleProviders, ...userProviders]
-    metadata.setProviders(providers)
 
-    try {
-        registerProviders(container, moduleProviders)
-        registerProviders(container, userProviders)
-    } catch (error) {
-        try {
-            container.dispose()
-        } catch {
-            // noop
-        }
-        throw error
-    }
+    // Register providers
+    container.register(moduleProviders)
+    container.register(userProviders)
+    metadata.setProviders([...moduleProviders, ...userProviders])
+
+    // Initialize lifecycle
+    const { onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy, onModuleError } = params ?? {}
+    lifecycle.init({ onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy, onModuleError })
 
     return { container, id: moduleId }
 }
 
-export function resolveContainer(
-    parent: DependencyContainer | null,
-    params?: ModuleResolutionParams
-): DependencyContainer {
+/**
+ * `root` and `factory` build their own container instead of forking the ancestor's, so they head their own
+ * lifecycle tree too — an ancestor's destroy claims its whole registry subtree, and these modes are never
+ * rebuilt when that ancestor's container changes. Shared with `useModule` so the two cannot drift.
+ */
+export function isRootModule(params?: ModuleResolutionParams): boolean {
+    return Boolean(params?.root || params?.factory)
+}
+
+export function resolveContainer(parent: Container | null, params?: ModuleResolutionParams): Container {
     if (params?.root) {
-        return Container.createChildContainer()
+        return new Container()
     }
 
     if (params?.factory) {
@@ -61,25 +59,17 @@ export function resolveContainer(
         throw new Error("No parent container in context. Provide `root` or `factory` for a root module.")
     }
 
-    return parent.createChildContainer()
+    return parent.fork()
 }
 
-export function validateParams(params?: ModuleResolutionParams): void {
+export function assertParams(params?: ModuleResolutionParams): void {
     if (params?.root && params.factory) {
         throw new Error("`root` cannot be used with `factory`.")
     }
 }
 
-/**
- * One container = one module. `root` and scoped modes always mint a fresh child container, so in
- * practice only `factory` can hand back a container that is already somebody's module.
- *
- * The registration check is non-recursive on purpose: a scoped child container resolves its parent's
- * `ModuleMetadata` through the chain, which is correct and must not be mistaken for a claim. Only a
- * registration made directly on this container means "this container is already a module".
- */
-function assertContainerIsFree(container: DependencyContainer): void {
-    const existing = tryResolve(container, ModuleMetadata, false)
+export function assertContainerIsFree(container: Container): void {
+    const existing = container.resolveSafe(ModuleMetadata, false)
     if (!existing) return
 
     throw new Error(

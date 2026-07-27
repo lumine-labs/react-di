@@ -1,80 +1,76 @@
-import type { DependencyContainer } from "../../../aliases/index.js"
-import type { Provider } from "../providers.types.js"
+import type { Container, InjectionToken, Provider, Scope } from "../../../container/index.js"
 
 // ModuleMetadata
 // ========================================
 
 export type ModuleMetadataInit = {
     id: string
-    container: DependencyContainer
-    parent: DependencyContainer | null
+    container: Container
+    parent: Container | null
     providers?: readonly Provider[]
 }
 
-/**
- * Pure per-module data record. Zero behavior beyond getters.
- *
- * The single public infrastructure-facing door onto a module's container and its place in the
- * lifecycle tree. Services should depend on their injected dependencies, not on module topology;
- * mutating a container you did not create is undefined behavior.
- */
+export type ModuleMetadataProvider = {
+    token: InjectionToken<unknown>
+    scope?: Scope // absent = singleton
+    lazy?: true
+    aliasOf?: InjectionToken<unknown> // useExisting target
+}
+
 export class ModuleMetadata {
-    /** Stable string identity of the module. */
     readonly id: string
 
-    /** Own tsyringe container. */
-    readonly container: DependencyContainer
+    readonly container: Container
 
-    /** Lifecycle parent's container (the React-context parent), or `null` for a lifecycle root. */
-    readonly parent: DependencyContainer | null
+    readonly parent: Container | null
 
-    /** @internal — structural, mutated only by ModuleRegistry. Insertion order = commit order. */
-    private readonly _children = new Set<DependencyContainer>()
+    readonly #children = new Set<Container>()
 
-    /** @internal — snapshot, set once by createModuleResolution. */
-    private _providers: readonly Provider[]
+    #providers: readonly ModuleMetadataProvider[]
 
-    /** @internal — lifecycle flag, mutated only by ModuleLifecycle. */
     committed = false
-    /** @internal — lifecycle flag, mutated only by ModuleLifecycle. */
     mounted = false
-    /** @internal — lifecycle flag, mutated only by ModuleLifecycle. */
-    pendingTeardown = false
 
     constructor(init: ModuleMetadataInit) {
         this.id = init.id
         this.container = init.container
         this.parent = init.parent
-        this._providers = init.providers ?? []
+        this.#providers = []
     }
 
-    /** Attached child containers (insertion order = commit order). */
-    get children(): ReadonlySet<DependencyContainer> {
-        return this._children
+    // Providers
+    // ========================================
+
+    setProviders(providers: Provider[]): void {
+        this.#providers = providers.map((provider) => {
+            if (typeof provider === "function") return { token: provider }
+
+            const metadata: ModuleMetadataProvider = { token: provider.provide }
+
+            if ("lazy" in provider && provider.lazy) metadata.lazy = true
+            if ("useExisting" in provider) metadata.aliasOf = provider.useExisting
+            if ("scope" in provider && provider.scope) metadata.scope = provider.scope
+
+            return metadata
+        })
     }
 
-    /** @internal — used only by ModuleRegistry. */
-    addChild(container: DependencyContainer): void {
-        this._children.add(container)
+    get providers(): readonly ModuleMetadataProvider[] {
+        return this.#providers
     }
 
-    /** @internal — used only by ModuleRegistry. */
-    removeChild(container: DependencyContainer): void {
-        this._children.delete(container)
+    // Children
+    // ========================================
+
+    get children(): ReadonlySet<Container> {
+        return this.#children
     }
 
-    /**
-     * Declared provider snapshot — not a live registry. Dynamic registrations made directly on the
-     * container do not appear here. Never use for resolution decisions — ask the container
-     * (`isRegistered`/`resolve`); this list cannot see dynamic registrations, `useExisting` chains, or
-     * parent-chain lookups.
-     */
-    get providers(): readonly Provider[] {
-        return this._providers
+    addChild(container: Container): void {
+        this.#children.add(container)
     }
 
-    /** @internal — used only by createModuleResolution. */
-    setProviders(providers: readonly Provider[]): void {
-        this._providers = providers
+    removeChild(container: Container): void {
+        this.#children.delete(container)
     }
 }

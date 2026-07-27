@@ -1,4 +1,4 @@
-import type { InjectionToken } from "../../aliases/index.js"
+import type { InjectionToken } from "../../container/index.js"
 
 const DEFAULT_TOKEN_NAMESPACE = "@luminelabs/react-di"
 

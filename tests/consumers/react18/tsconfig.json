@@ -14,7 +14,8 @@
         "lib": ["ES2022", "DOM", "DOM.Iterable"],
         "jsx": "react-jsx",
 
-        // tsyringe-style DI: the documented consumer setup.
+        // Legacy decorators: Inversify parameter decorators (constructor injection) only exist there.
+        // `emitDecoratorMetadata` is not read by Inversify, but plenty of apps still have it on.
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
 

@@ -1,8 +1,14 @@
 # @luminelabs/react-di
 
+> ⚠️ **Experimental / Internal Use**
+>
+> Primarily intended for personal and internal use. It may change, break, or be
+> restructured at any time. Don't rely on it for public projects unless you're
+> prepared to maintain your own fork. Issues/feature requests may be closed without response.
+
 [Documentation (WIP)](https://lumine-labs.github.io/react-di/)
 
-Dependency Injection for React, built on top of `tsyringe`.
+Dependency Injection for React, built on top of `inversify`.
 
 `@luminelabs/react-di` brings module-oriented DI into React applications: containers, module boundaries, subtree scoping, and predictable lifecycle orchestration for services.
 

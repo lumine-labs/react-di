@@ -1,7 +1,7 @@
 {
     "name": "@luminelabs/react-di",
-    "version": "0.3.1",
-    "description": "Non-reactive dependency injection library for React built on top of tsyringe with immutable module scopes.",
+    "version": "0.4.0",
+    "description": "Non-reactive dependency injection library for React built on top of inversify with immutable module scopes.",
     "license": "MIT",
     "author": "Egor Arkhipov (Lumine Labs)",
     "repository": {
@@ -16,7 +16,7 @@
         "dependency-injection",
         "di",
         "ioc",
-        "tsyringe",
+        "inversify",
         "typescript",
         "module-scope",
         "frontend-architecture"
@@ -52,6 +52,7 @@
     "scripts": {
         "clean": "rimraf dist",
         "typecheck": "tsc -p tsconfig.json --noEmit",
+        "typecheck:build": "tsc -p tsconfig.build.json --noEmit",
         "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
         "typecheck:consumers": "node ./tests/consumers/run.mjs",
         "build": "npm run clean && tsc -p tsconfig.build.json",
@@ -71,8 +72,7 @@
     "dependencies": {
         "@luminelabs/react-toolkit": "^0.1.1",
         "@luminelabs/toolkit": "^0.1.1",
-        "inversify": "^8.2.3",
-        "tsyringe": "^4.0.0"
+        "inversify": "^8.2.3"
     },
     "devDependencies": {
         "@luminelabs/eslint-config": "^0.4.1",

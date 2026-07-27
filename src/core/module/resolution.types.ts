@@ -1,7 +1,6 @@
-import type { DependencyContainer } from "../../aliases/index.js"
+import type { Container, Provider } from "../../container/index.js"
 
 import type { ModuleHooks } from "../providers/module-lifecycle/module-lifecycle.types.js"
-import type { Provider } from "../providers/providers.types.js"
 
 // Module parameters
 // ========================================
@@ -19,7 +18,7 @@ export type RootModuleParams = {
 } & BaseModuleParams
 
 export type FactoryModuleParams = {
-    factory: () => DependencyContainer
+    factory: () => Container
     root?: never
     container?: never
 } & BaseModuleParams
@@ -33,6 +32,6 @@ export type ScopedModuleParams = {
 export type ModuleResolutionParams = RootModuleParams | FactoryModuleParams | ScopedModuleParams
 
 export type ModuleResolution = {
-    container: DependencyContainer
+    container: Container
     id: string
 }

@@ -1,8 +1,8 @@
 import { createContext } from "react"
-import type { DependencyContainer } from "../../aliases/index.js"
+import type { Container } from "../../container/index.js"
 
 export type ModuleContextValue = {
-    container: DependencyContainer
+    container: Container
     id: string
     rebuild: () => void
 }

@@ -1,5 +1,6 @@
 import { useContext } from "react"
-import type { DependencyContainer } from "../../aliases/index.js"
+
+import type { Container } from "../../container/index.js"
 import { ModuleContext, type ModuleContextValue } from "../context/ModuleContext.js"
 
 export function useModuleContext(): ModuleContextValue {
@@ -12,7 +13,7 @@ export function useModuleContext(): ModuleContextValue {
     return value
 }
 
-export function useContainer(): DependencyContainer {
+export function useContainer(): Container {
     return useModuleContext().container
 }
 

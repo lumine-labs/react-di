@@ -1,88 +1,91 @@
-import type { DependencyContainer } from "../../../aliases/index.js"
+import type { Container, InjectionToken } from "../../../container/index.js"
 import { ModuleMetadata } from "../module-metadata/module-metadata.provider.js"
 
 // ModuleRegistry
 // ========================================
 
-/**
- * Structure service — the sole mutator of the lifecycle tree.
- *
- * Owns attach/detach of a module into its lifecycle parent's children set, plus minimal read-only
- * traversal primitives. Public discovery hooks are intentionally out of scope.
- */
 export class ModuleRegistry {
     constructor(private readonly metadata: ModuleMetadata) {}
 
-    /**
-     * Add own container to the lifecycle parent's children set. Idempotent (Set). No parent metadata
-     * (a lifecycle root) → no-op.
-     */
+    // Structure
+    // ========================================
+
     attach(): void {
-        const parent = this.parentMetadata()
-        if (!parent) return
-        parent.addChild(this.metadata.container)
+        resolveMetadata(this.metadata.parent)?.addChild(this.metadata.container)
     }
 
-    /**
-     * Remove own container from the lifecycle parent's children set. Idempotent, safe if never attached
-     * or if the parent is already gone.
-     */
     detach(): void {
-        const parent = this.parentMetadata()
-        if (!parent) return
-        parent.removeChild(this.metadata.container)
+        resolveMetadata(this.metadata.parent)?.removeChild(this.metadata.container)
     }
 
-    /** The lifecycle parent's own `ModuleMetadata`. `null` at a lifecycle root. */
-    parentMetadata(): ModuleMetadata | null {
-        return resolveMetadata(this.metadata.parent)
+    // Traversal
+    // ========================================
+
+    parent(): Container | null {
+        return resolveMetadata(this.metadata.parent) ? this.metadata.parent : null
     }
 
-    /** Metadata of each attached child, in insertion (commit) order. */
-    *childrenMetadata(): IterableIterator<ModuleMetadata> {
-        for (const container of this.metadata.children) {
-            const child = resolveMetadata(container)
-            if (child) yield child
-        }
-    }
-
-    /** Walk the ancestor chain (nearest parent first), excluding self. */
-    *ancestors(): IterableIterator<ModuleMetadata> {
-        let current = this.parentMetadata()
+    /** Nearest first, excluding self. */
+    ancestors(): Container[] {
+        const found: Container[] = []
+        let current = resolveMetadata(this.metadata.parent)
         while (current) {
-            yield current
+            found.push(current.container)
             current = resolveMetadata(current.parent)
         }
+        return found
     }
 
-    /** The lifecycle root of this module's tree (self if already a root). */
-    findRoot(): ModuleMetadata {
-        let current: ModuleMetadata = this.metadata
-        let parent = resolveMetadata(current.parent)
-        while (parent) {
-            current = parent
-            parent = resolveMetadata(current.parent)
+    /** The outermost module in this tree, or own container when already a root. */
+    findRoot(): Container {
+        return this.ancestors().at(-1) ?? this.metadata.container
+    }
+
+    /** Direct children only, in attach order. A child appears here once it has mounted. */
+    children(): Container[] {
+        return [...this.metadata.children]
+    }
+
+    /** Depth-first, excluding self. */
+    descendants(): Container[] {
+        const found: Container[] = []
+        for (const container of this.metadata.children) {
+            found.push(container)
+            const child = resolveMetadata(container)
+            if (child) found.push(...new ModuleRegistry(child).descendants())
         }
-        return current
+        return found
+    }
+
+    findAncestorById(id: string): Container | null {
+        return this.ancestors().find((container) => idOf(container) === id) ?? null
+    }
+
+    findDescendantById(id: string): Container | null {
+        return this.descendants().find((container) => idOf(container) === id) ?? null
+    }
+
+    /**
+     * Nearest ancestor holding the token. Asks the container rather than `metadata.providers`, which is a
+     * declared snapshot and cannot see registrations made after resolution.
+     */
+    findAncestorByProvider(token: InjectionToken<unknown>): Container | null {
+        return this.ancestors().find((container) => container.isRegistered(token, false)) ?? null
+    }
+
+    findDescendantsByProvider(token: InjectionToken<unknown>): Container[] {
+        return this.descendants().filter((container) => container.isRegistered(token, false))
     }
 }
 
 // Helpers
 // ========================================
 
-/**
- * The `ModuleMetadata` a container registers itself, or `null`.
- *
- * Non-recursive, and that is the whole point: one container = one module, so the metadata a container
- * holds directly IS its module. A chain lookup would happily walk out of a plain tsyringe child
- * container into the enclosing module and report someone else's node as this one's.
- */
-function resolveMetadata(container: DependencyContainer | null): ModuleMetadata | null {
+function resolveMetadata(container: Container | null): ModuleMetadata | null {
     if (!container) return null
-    try {
-        if (!container.isRegistered(ModuleMetadata, false)) return null
-        return container.resolve(ModuleMetadata)
-    } catch {
-        return null
-    }
+    return container.resolveSafe(ModuleMetadata, false) ?? null
+}
+
+function idOf(container: Container): string | undefined {
+    return resolveMetadata(container)?.id
 }

@@ -20,36 +20,30 @@
  * under test; the source is the control.
  */
 
+// Not required by the package any more — Inversify carries its own metadata and never reads
+// `design:paramtypes` — but decorator-using apps still commonly load it, and the consumer declares it.
 import "reflect-metadata"
 
 import { useState } from "react"
 import type { ComponentType, ReactElement, ReactNode } from "react"
 
 import {
-    AsyncTeardown,
-    ConditionalFactory,
     Container,
-    Delay,
     Inject,
     InjectAll,
-    InjectAllWithTransform,
     Injectable,
-    InjectWithTransform,
+    LazyToken,
     ModuleMetadata,
     ModuleProvider,
+    ModuleRegistry,
+    Optional,
     PropsRef,
     Resolver,
     Scope,
-    Singleton,
-    SingletonFactory,
     Token,
     createModule,
+    decorate,
     makeTokenizer,
-    resolve,
-    resolveAll,
-    resolveOr,
-    tryResolve,
-    useAsyncTeardown,
     useContainer,
     useModule,
     useModuleContext,
@@ -57,28 +51,29 @@ import {
     usePropsRef,
     useResolve,
     useResolveAll,
-    useTryResolve,
+    useResolveSafe,
 } from "@luminelabs/react-di"
 
 // The `./types` subpath has to carry the whole type surface on its own — a consumer that only wants
 // types must never have to reach into `.` or into `dist/`.
 import type {
-    CleanupFn,
+    AbstractConstructor,
     ClassProvider,
     Constructor,
     CreateModuleOptions,
     CreateModuleParams,
-    DependencyContainer,
-    Disposable,
     ExistingProvider,
     FactoryDependency,
     FactoryModuleParams,
     FactoryProvider,
-    Frequency,
     InjectionToken,
     ModuleContextValue,
+    ModuleErrorHook,
     ModuleHook,
     ModuleHooks,
+    ModuleMetadataInit,
+    ModuleMetadataProvider,
+    ModulePhase,
     ModuleProviderProps,
     ModuleResolution,
     ModuleResolutionParams,
@@ -86,8 +81,6 @@ import type {
     PropsAdapter,
     Provider,
     ProviderLifecycle,
-    ProviderScope,
-    RegistrationOptions,
     RootModuleParams,
     ScopedModuleParams,
     TokenOptions,
@@ -167,6 +160,14 @@ const tokenOptions: TokenOptions = { allowDuplicate: true }
 const DUPLICATE_PLUGIN = Token<Plugin>("consumer.plugin", tokenOptions)
 type _DuplicatePluginIsTyped = Expect<Equals<typeof DUPLICATE_PLUGIN, InjectionToken<Plugin>>>
 
+// An abstract class is a legal token too — that is what `AbstractConstructor` is in the union for.
+abstract class LoggerPort implements Logger {
+    abstract log(message: string): void
+}
+const abstractToken: InjectionToken<LoggerPort> = LoggerPort
+const abstractCtor: AbstractConstructor<LoggerPort> = LoggerPort
+void abstractToken
+
 // Services
 // ========================================
 
@@ -187,7 +188,8 @@ class ConsoleLogger implements Logger {
 }
 
 // A service that both participates in the module lifecycle and reads component props through the
-// auto-registered bridge.
+// auto-registered bridge. Every parameter carries its own token: nothing here depends on
+// `design:paramtypes`, so the same code compiles under a bundler that strips decorator metadata.
 @Injectable()
 class UserStore implements ProviderLifecycle {
     private off: (() => void) | null = null
@@ -235,12 +237,14 @@ class UserStore implements ProviderLifecycle {
     }
 }
 
-// The two system providers a consumer is allowed to inject.
+// The three system providers a consumer is allowed to inject.
 @Injectable()
 class Diagnostics {
     constructor(
         @Inject(ModuleMetadata) private readonly metadata: ModuleMetadata,
-        @Inject(Resolver) private readonly resolver: Resolver
+        @Inject(ModuleRegistry) private readonly registry: ModuleRegistry,
+        @Inject(Resolver) private readonly resolver: Resolver,
+        @Inject(LOGGER) @Optional() private readonly logger: Logger | undefined
     ) {}
 
     describe(): string {
@@ -248,55 +252,116 @@ class Diagnostics {
         type _MetadataId = Expect<Equals<typeof id, string>>
 
         const ownContainer = this.metadata.container
-        type _MetadataContainer = Expect<Equals<typeof ownContainer, DependencyContainer>>
+        type _MetadataContainer = Expect<Equals<typeof ownContainer, Container>>
 
         const parent = this.metadata.parent
-        type _MetadataParent = Expect<Equals<typeof parent, DependencyContainer | null>>
+        type _MetadataParent = Expect<Equals<typeof parent, Container | null>>
 
         const children = this.metadata.children
-        type _MetadataChildren = Expect<Equals<typeof children, ReadonlySet<DependencyContainer>>>
+        type _MetadataChildren = Expect<Equals<typeof children, ReadonlySet<Container>>>
 
+        // A declared snapshot, not the providers themselves — one entry per registration.
         const declared = this.metadata.providers
-        type _MetadataProviders = Expect<Equals<typeof declared, readonly Provider[]>>
+        type _MetadataProviders = Expect<Equals<typeof declared, readonly ModuleMetadataProvider[]>>
+
+        const committed = this.metadata.committed
+        type _MetadataCommitted = Expect<Equals<typeof committed, boolean>>
 
         const store = this.resolver.resolve(UserStore)
         type _ResolverResolve = Expect<Equals<typeof store, UserStore>>
 
-        const maybeLogger = this.resolver.tryResolve(LOGGER, false)
-        type _ResolverTryResolve = Expect<Equals<typeof maybeLogger, Logger | undefined>>
+        const maybeLogger = this.resolver.resolveSafe(LOGGER, false)
+        type _ResolverResolveSafe = Expect<Equals<typeof maybeLogger, Logger | undefined>>
 
-        return `${id}/${children.size}/${declared.length}/${store.userId}/${maybeLogger ? "y" : "n"}`
+        const allPlugins = this.resolver.resolveAll(PLUGIN)
+        type _ResolverResolveAll = Expect<Equals<typeof allPlugins, Plugin[]>>
+
+        return [
+            id,
+            String(children.size),
+            String(declared.length),
+            String(committed),
+            store.userId,
+            maybeLogger ? "y" : "n",
+            String(allPlugins.length),
+            this.logger ? "y" : "n",
+            this.walk(),
+        ].join("/")
+    }
+
+    // ModuleRegistry is the module tree, exposed as containers.
+    walk(): string {
+        const parent = this.registry.parent()
+        type _RegistryParent = Expect<Equals<typeof parent, Container | null>>
+
+        const ancestors = this.registry.ancestors()
+        type _RegistryAncestors = Expect<Equals<typeof ancestors, Container[]>>
+
+        const root = this.registry.findRoot()
+        type _RegistryFindRoot = Expect<Equals<typeof root, Container>>
+        type _RegistryFindRootIsNotNullable = Expect<Not<Equals<typeof root, Container | null>>>
+
+        const children = this.registry.children()
+        type _RegistryChildren = Expect<Equals<typeof children, Container[]>>
+
+        const descendants = this.registry.descendants()
+        type _RegistryDescendants = Expect<Equals<typeof descendants, Container[]>>
+
+        const byId = this.registry.findAncestorById("app-root")
+        type _RegistryFindAncestorById = Expect<Equals<typeof byId, Container | null>>
+
+        const descendantById = this.registry.findDescendantById("user")
+        type _RegistryFindDescendantById = Expect<Equals<typeof descendantById, Container | null>>
+
+        const owner = this.registry.findAncestorByProvider(CONFIG)
+        type _RegistryFindAncestorByProvider = Expect<Equals<typeof owner, Container | null>>
+
+        const holders = this.registry.findDescendantsByProvider(PLUGIN)
+        type _RegistryFindDescendantsByProvider = Expect<Equals<typeof holders, Container[]>>
+
+        return [
+            parent ? "p" : "-",
+            String(ancestors.length),
+            String(root.isRegistered(CONFIG)),
+            String(children.length),
+            String(descendants.length),
+            byId ? "y" : "n",
+            descendantById ? "y" : "n",
+            owner ? "y" : "n",
+            String(holders.length),
+        ].join("/")
     }
 }
 
-@Singleton()
-class AppClock {
-    now(): number {
-        return Date.now()
-    }
-}
-
-class PluginNames {
-    transform(plugins: Plugin[]): string[] {
-        return plugins.map((plugin) => plugin.name)
-    }
-}
-
-class ConfigBaseUrl {
-    transform(config: AppConfig): string {
-        return config.baseUrl
-    }
-}
-
+// `LazyToken` breaks a construction cycle: a thunk, evaluated when the binding is resolved.
 @Injectable()
 class PluginRegistry {
     constructor(
         @InjectAll(PLUGIN) readonly plugins: Plugin[],
-        @InjectAllWithTransform(PLUGIN, PluginNames) readonly names: string[],
-        @InjectWithTransform(CONFIG, ConfigBaseUrl) readonly baseUrl: string,
-        @Inject(Delay(() => ApiClient)) readonly api: ApiClient
+        @Inject(LazyToken(() => ApiClient)) readonly api: ApiClient
     ) {}
 }
+
+// The decorator surface is re-exported from the container library, so its declarations reach the
+// consumer through OUR `dist` — and a decorator that arrives as `any` accepts anything, silently. That
+// is not a compile error anywhere; it is only visible as an assertion. `skipLibCheck` (which every real
+// app sets) hides the underlying "cannot find module" completely, so this is the only place it shows.
+const lazyApiToken = LazyToken(() => ApiClient)
+type _LazyTokenIsNotAny = Expect<Not<IsAny<typeof lazyApiToken>>>
+type _InjectableIsNotAny = Expect<Not<IsAny<typeof Injectable>>>
+type _InjectIsNotAny = Expect<Not<IsAny<typeof Inject>>>
+type _InjectAllIsNotAny = Expect<Not<IsAny<typeof InjectAll>>>
+type _OptionalIsNotAny = Expect<Not<IsAny<typeof Optional>>>
+type _DecorateIsNotAny = Expect<Not<IsAny<typeof decorate>>>
+void lazyApiToken
+
+// The bundler path: no decorator syntax at all, the same metadata applied by hand. This is the shape
+// a consumer needs when the build strips decorators (esbuild, SWC without the legacy transform).
+class ManuallyDecorated {
+    constructor(readonly api: ApiClient) {}
+}
+decorate(Injectable(), ManuallyDecorated)
+decorate(Inject(ApiClient), ManuallyDecorated, 0)
 
 // Providers — all five shapes the registry accepts.
 // ========================================
@@ -311,6 +376,13 @@ const classProvider: ClassProvider<UserStore> = {
     provide: UserStore,
     useClass: UserStore,
     scope: "singleton",
+}
+
+// A lazy class provider: registered now, constructed on first resolve instead of in the eager pass.
+const lazyClassProvider: ClassProvider<PluginRegistry> = {
+    provide: PluginRegistry,
+    useClass: PluginRegistry,
+    lazy: true,
 }
 
 // 3. value provider
@@ -333,13 +405,20 @@ const factoryProvider: FactoryProvider<Logger> = {
 // 5. existing provider (alias onto an already-registered token)
 const existingProvider: ExistingProvider<Logger> = { provide: FEATURE_LOGGER, useExisting: LOGGER }
 
-// Factory helpers, cached in the two ways the package re-exports.
-const cachedLogger = SingletonFactory((container) => {
-    type _FactoryContainer = Expect<Equals<typeof container, DependencyContainer>>
-    return new ConsoleLogger(`${String(container.isRegistered(CONFIG))} `)
-})
-const conditionalLogger = ConditionalFactory(() => true, ConsoleLogger, ConsoleLogger)
-const cachedLoggerProvider: FactoryProvider<Logger> = { provide: LOGGER, useFactory: cachedLogger }
+// The scope model is exactly two strings, and `Scope.*` is nothing but those strings. Note where the
+// type comes from: `Scope` is the one type a provider literal needs that `./types` does not re-export,
+// so a types-only consumer has to reach into the root entry for it.
+type _ScopeUnion = Expect<Equals<Scope, "singleton" | "transient">>
+type _ScopeValues = Expect<
+    Equals<
+        typeof Scope,
+        {
+            readonly Singleton: "singleton"
+            readonly Transient: "transient"
+        }
+    >
+>
+const transientProvider: ClassProvider<ApiClient> = { provide: ApiClient, useClass: ApiClient, scope: Scope.Transient }
 
 // Negative space: the provider unions must stay discriminated in the emitted declarations.
 
@@ -347,17 +426,24 @@ const cachedLoggerProvider: FactoryProvider<Logger> = { provide: LOGGER, useFact
 const classProviderWithInject: ClassProvider<UserStore> = { provide: UserStore, useClass: UserStore, inject: [CONFIG] }
 void classProviderWithInject
 
+// @ts-expect-error a value provider is already an instance — there is nothing to defer.
+const lazyValueProvider: ValueProvider<AppConfig> = { provide: CONFIG, useValue: valueProvider.useValue, lazy: true }
+void lazyValueProvider
+
 // @ts-expect-error `resolutionScoped` is not part of the scope model.
-const resolutionScopedFactory: FactoryProvider<Logger> = { provide: LOGGER, useFactory: cachedLogger, scope: "resolutionScoped" }
+const resolutionScopedFactory: FactoryProvider<Logger> = { provide: LOGGER, useFactory: () => new ConsoleLogger(""), scope: "resolutionScoped" }
 void resolutionScopedFactory
 
 // @ts-expect-error `containerScoped` is not part of the scope model.
 const containerScopedClass: ClassProvider<UserStore> = { provide: UserStore, useClass: UserStore, scope: "containerScoped" }
 void containerScopedClass
 
-// @ts-expect-error the scope model is exactly `singleton | transient` (plus the raw `Scope.*` values).
-const removedScope: ProviderScope = "containerScoped"
+// @ts-expect-error the scope model is exactly `singleton | transient`.
+const removedScope: Scope = "containerScoped"
 void removedScope
+
+// @ts-expect-error the tsyringe-era enum member is gone with the lifecycle model that had it.
+void Scope.ContainerScoped
 
 // @ts-expect-error `useValue` must match the token's type.
 const mistypedValueProvider: ValueProvider<AppConfig> = { provide: CONFIG, useValue: { baseUrl: "x" } }
@@ -366,13 +452,13 @@ void mistypedValueProvider
 const moduleProviders: Provider[] = [
     constructorProvider,
     classProvider,
+    lazyClassProvider,
     valueProvider,
     factoryProvider,
     existingProvider,
-    cachedLoggerProvider,
     Diagnostics,
-    PluginRegistry,
-    AppClock,
+    UserStore,
+    ManuallyDecorated,
 ]
 
 // Props bridge
@@ -402,8 +488,14 @@ const UserModule = createModule<UserProps>({
     id: "user",
     providers: moduleProviders,
     onModuleInit: (container) => {
-        type _ModuleInitContainer = Expect<Equals<typeof container, DependencyContainer>>
+        type _ModuleInitContainer = Expect<Equals<typeof container, Container>>
         void container
+    },
+    onModuleError: (phase, error) => {
+        type _ModuleErrorPhase = Expect<Equals<typeof phase, ModulePhase>>
+        type _ModuleErrorPhaseValues = Expect<Equals<ModulePhase, "init" | "mount" | "unmount" | "destroy">>
+        type _ModuleErrorReason = Expect<Equals<typeof error, unknown>>
+        void error
     },
 })
 type _UserModuleProps = Expect<Equals<typeof UserModule, ComponentType<UserProps & { children?: ReactNode }>>>
@@ -431,6 +523,10 @@ type _UserVMModuleProps = Expect<Equals<typeof UserVMModule, ComponentType<UserP
 // (d) no arguments at all — a module that only owns a scope.
 const BareModule = createModule()
 
+// @ts-expect-error the adapter's input is the component's props, not the bridged type.
+const mismatchedAdapterModule = createModule<UserProps, UserVM>({}, { adapter: { create: (initial: UserVM) => initial, update: ({ current }) => current } })
+void mismatchedAdapterModule
+
 // The module component's props are exactly `P & { children?: ReactNode }`.
 
 // @ts-expect-error `userId` is required; a widening of the props to `any` would drop this error.
@@ -447,42 +543,53 @@ void moduleMistypedProp
 
 // Typed parameter values, so the parameter unions stay pinned as well.
 const createParams: CreateModuleParams<UserProps> = (props) => ({ id: `user-${props.userId}`, providers: [ApiClient] })
+const createOptions: CreateModuleOptions<UserProps, UserVM> = { adapter: userAdapter, token: USER_VM }
 const rootParams: RootModuleParams = { root: true, providers: [ApiClient] }
 const scopedParams: ScopedModuleParams = { providers: [ApiClient], rebuildOn: [1, "a"] }
-const factoryParams: FactoryModuleParams = { factory: () => Container.createChildContainer(), providers: [ApiClient] }
+const factoryParams: FactoryModuleParams = { factory: () => new Container(), providers: [ApiClient] }
 const resolutionParams: ModuleResolutionParams = rootParams
 const providerProps: ModuleProviderProps = { root: true, providers: [ApiClient], children: null }
 
 const moduleHook: ModuleHook = (container) => {
-    type _ModuleHookContainer = Expect<Equals<typeof container, DependencyContainer>>
+    type _ModuleHookContainer = Expect<Equals<typeof container, Container>>
     void container
 }
 
-const moduleHooks: ModuleHooks = { onModuleInit: moduleHook, onModuleDestroy: moduleHook }
+const moduleErrorHook: ModuleErrorHook = (phase, error) => {
+    type _ErrorHookPhase = Expect<Equals<typeof phase, ModulePhase>>
+    void phase
+    void error
+}
+
+const moduleHooks: ModuleHooks = {
+    onModuleInit: moduleHook,
+    onModuleDestroy: moduleHook,
+    onModuleError: moduleErrorHook,
+}
 
 declare const someResolution: ModuleResolution
-type _ModuleResolutionShape = Expect<Equals<typeof someResolution, { container: DependencyContainer; id: string }>>
+type _ModuleResolutionShape = Expect<Equals<typeof someResolution, { container: Container; id: string }>>
 
 // One container = one module: `container` is not a module parameter in any mode, so a module can never
 // be pointed at somebody else's container. These directives are the regression guard — if the key ever
 // becomes assignable again, TypeScript reports each one as unused and this file stops compiling.
 
 // @ts-expect-error `container` is not a module parameter.
-const containerParams: ModuleResolutionParams = { container: Container.createChildContainer() }
+const containerParams: ModuleResolutionParams = { container: new Container() }
 void containerParams
 
 // Not merely an excess-property error on a fresh literal: it must fail for an object that already
 // partially matches the (otherwise weak) scoped params type too.
 // @ts-expect-error `container` is not a module parameter, and a known key alongside it does not help.
-const containerWithKnownKey: ModuleResolutionParams = { id: "x", container: Container.createChildContainer() }
+const containerWithKnownKey: ModuleResolutionParams = { id: "x", container: new Container() }
 void containerWithKnownKey
 
 // @ts-expect-error a scoped module has no `container` either.
-const scopedWithContainer: ScopedModuleParams = { container: Container.createChildContainer() }
+const scopedWithContainer: ScopedModuleParams = { container: new Container() }
 void scopedWithContainer
 
 // @ts-expect-error root and factory modes are mutually exclusive.
-const rootWithFactory: RootModuleParams = { root: true, factory: () => Container.createChildContainer() }
+const rootWithFactory: RootModuleParams = { root: true, factory: () => new Container() }
 void rootWithFactory
 
 // Nameability of inferred types — TS2742
@@ -511,10 +618,14 @@ export function useCurrentModule() {
     return useModuleContext()
 }
 
+export function useOwnContainer() {
+    return useContainer()
+}
+
 export const consumerToken = makeTokenizer("@consumer")
 
 export type ModuleContextShape = {
-    container: DependencyContainer
+    container: Container
     id: string
     rebuild: () => void
 }
@@ -563,6 +674,7 @@ function UserPanel(props: UserProps): ReactElement {
     type _CustomHookResult = Expect<
         Equals<UserBridge, { ref: PropsRef<UserProps>; provider: ValueProvider<PropsRef<UserProps>> }>
     >
+    type _CustomHookIsTheDeclaredResult = Expect<Equals<UserBridge, UsePropsRefResult<UserProps>>>
 
     return <div data-user={current.userId} data-take={vm.take} data-token={String(provider.provide)} onBlur={off} />
 }
@@ -579,11 +691,11 @@ function UserView(): ReactElement {
     type _ResolveBySymbolIsNotAny = Expect<Not<IsAny<typeof config>>>
 
     // The non-recursive overload must not change the resolved type.
-    const ownConfig = useTryResolve(CONFIG, false)
-    type _TryResolveBySymbol = Expect<Equals<typeof ownConfig, AppConfig | undefined>>
+    const ownConfig = useResolveSafe(CONFIG, false)
+    type _ResolveSafeBySymbol = Expect<Equals<typeof ownConfig, AppConfig | undefined>>
 
-    const maybeStore = useTryResolve(UserStore)
-    type _TryResolveByClass = Expect<Equals<typeof maybeStore, UserStore | undefined>>
+    const maybeStore = useResolveSafe(UserStore)
+    type _ResolveSafeByClass = Expect<Equals<typeof maybeStore, UserStore | undefined>>
 
     const plugins = useResolveAll(PLUGIN)
     type _ResolveAllBySymbol = Expect<Equals<typeof plugins, Plugin[]>>
@@ -592,11 +704,14 @@ function UserView(): ReactElement {
     const firstPlugin = plugins[0]
     type _ResolveAllIndexed = Expect<Equals<typeof firstPlugin, Plugin | undefined>>
 
-    const registries = useResolveAll(PluginRegistry, false)
+    const registries = useResolveAll(PluginRegistry)
     type _ResolveAllByClass = Expect<Equals<typeof registries, PluginRegistry[]>>
 
+    // @ts-expect-error `useResolveAll` takes a token and nothing else — the `recursive` parameter is gone.
+    void useResolveAll(PLUGIN, false)
+
     const container = useContainer()
-    type _UseContainer = Expect<Equals<typeof container, DependencyContainer>>
+    type _UseContainer = Expect<Equals<typeof container, Container>>
 
     const rebuild = useModuleRebuild()
     type _UseModuleRebuild = Expect<Equals<typeof rebuild, () => void>>
@@ -604,7 +719,7 @@ function UserView(): ReactElement {
     const moduleContext = useModuleContext()
     type _UseModuleContext = Expect<Equals<typeof moduleContext, ModuleContextValue>>
     type _ModuleContextShape = Expect<
-        Equals<ModuleContextValue, { container: DependencyContainer; id: string; rebuild: () => void }>
+        Equals<ModuleContextValue, { container: Container; id: string; rebuild: () => void }>
     >
 
     // @ts-expect-error resolution is typed by the token — `nope` does not exist on UserStore.
@@ -624,43 +739,18 @@ function UserView(): ReactElement {
     )
 }
 
-function TeardownView(): ReactElement {
-    const teardown = useResolve(AsyncTeardown)
-    type _ResolveAsyncTeardown = Expect<Equals<typeof teardown, AsyncTeardown>>
-
-    const cleanup: CleanupFn = async () => {
-        await Promise.resolve()
-    }
-    const syncCleanup: CleanupFn = () => {}
-
-    const off = useAsyncTeardown(cleanup, 10)
-    type _UseAsyncTeardownResult = Expect<Equals<typeof off, () => void>>
-
-    const manualOff = teardown.add(syncCleanup, 5)
-    type _AsyncTeardownAdd = Expect<Equals<typeof manualOff, () => void>>
-
-    const runAll = () => teardown.run()
-    type _AsyncTeardownRun = Expect<Equals<ReturnType<typeof runAll>, Promise<void>>>
-
-    return (
-        <button
-            type="button"
-            onClick={() => {
-                off()
-                manualOff()
-                void runAll()
-            }}
-        />
-    )
-}
-
 // `rebuildOn` — the module is rebuilt when any dependency identity changes.
 function RebuildingModule({ children }: { children?: ReactNode }): ReactElement {
     const [version, setVersion] = useState(0)
     const [tenant, setTenant] = useState<string | null>(null)
 
     return (
-        <ModuleProvider providers={[ApiClient, valueProvider]} rebuildOn={[version, tenant]} onModuleDestroy={moduleHook}>
+        <ModuleProvider
+            providers={[ApiClient, valueProvider]}
+            rebuildOn={[version, tenant]}
+            onModuleDestroy={moduleHook}
+            onModuleError={moduleErrorHook}
+        >
             <button
                 type="button"
                 onClick={() => {
@@ -676,9 +766,7 @@ function RebuildingModule({ children }: { children?: ReactNode }): ReactElement 
 // The low-level hook behind `ModuleProvider`, exported for advanced consumers.
 function ManualModule({ children }: { children?: ReactNode }): ReactElement {
     const module = useModule(scopedParams)
-    type _UseModuleResult = Expect<
-        Equals<typeof module, { container: DependencyContainer; id: string; rebuild: () => void }>
-    >
+    type _UseModuleResult = Expect<Equals<typeof module, { container: Container; id: string; rebuild: () => void }>>
 
     return <div data-module={module.id}>{children}</div>
 }
@@ -695,7 +783,6 @@ export function App(): ReactElement {
                 <UserModule userId="u-1" limit={25}>
                     <UserPanel userId="u-1" limit={25} />
                     <UserView />
-                    <TeardownView />
                 </UserModule>
 
                 <UserVMModule userId="u-2">
@@ -712,7 +799,7 @@ export function App(): ReactElement {
             </ModuleProvider>
 
             {/* factory mode: the module adopts and owns the container the factory builds. */}
-            <ModuleProvider factory={() => Container.createChildContainer()} providers={[ApiClient]}>
+            <ModuleProvider factory={() => new Container()} providers={[ApiClient]}>
                 <UserView />
             </ModuleProvider>
         </ModuleProvider>
@@ -722,7 +809,7 @@ export function App(): ReactElement {
 // `container` is not a prop. The trap this guards against: TypeScript's excess-property check against a
 // union accepts any key present in ANY member, so the key has to be absent-or-`never` in ALL of them.
 
-const externalContainer: DependencyContainer = Container.createChildContainer()
+const externalContainer: Container = new Container()
 
 // @ts-expect-error `container` is not a module prop — one container = one module.
 const containerElement = <ModuleProvider container={externalContainer} />
@@ -740,127 +827,155 @@ void rootContainerElement
 const spreadContainerElement = <ModuleProvider {...{ container: externalContainer }} />
 void spreadContainerElement
 
-// Container utilities — the same resolution semantics outside React.
+// Container — the same resolution semantics outside React.
 // ========================================
 
-export function inspect(container: DependencyContainer): string {
-    const api = resolve(container, ApiClient)
+export function inspect(container: Container): string {
+    const child = container.fork()
+    type _Fork = Expect<Equals<typeof child, Container>>
+
+    child.register([ApiClient, valueProvider])
+    child.register(factoryProvider)
+
+    const api = child.resolve(ApiClient)
     type _Resolve = Expect<Equals<typeof api, ApiClient>>
 
-    const maybeConfig = tryResolve(container, CONFIG, false)
-    type _TryResolve = Expect<Equals<typeof maybeConfig, AppConfig | undefined>>
+    const maybeConfig = child.resolveSafe(CONFIG, false)
+    type _ResolveSafe = Expect<Equals<typeof maybeConfig, AppConfig | undefined>>
 
-    const plugins = resolveAll(container, PLUGIN)
+    const plugins = child.resolveAll(PLUGIN)
     type _ResolveAll = Expect<Equals<typeof plugins, Plugin[]>>
 
+    const registered = child.isRegistered(CONFIG, false)
+    type _IsRegistered = Expect<Equals<typeof registered, boolean>>
+
+    child.onResolution(CONFIG, (instance) => {
+        type _OnResolutionInstance = Expect<Equals<typeof instance, AppConfig>>
+        void instance
+    })
+
     const fallbackConfig: AppConfig = { baseUrl: "", retries: 0 }
-    const configOrValue = resolveOr(container, CONFIG, fallbackConfig)
+    const configOrValue = child.resolveOr(CONFIG, fallbackConfig)
     type _ResolveOrValue = Expect<Equals<typeof configOrValue, AppConfig>>
 
     // A thunk fallback must infer its RETURN type, not the function itself. The lazy overload is declared
     // before the eager one for exactly this reason — a thunk satisfies `fallback: F` too, so with the
     // eager overload first this used to infer `AppConfig | (() => null)` while the runtime called the
     // thunk and returned `null`.
-    const configOrLazy = resolveOr(container, CONFIG, () => null)
+    const configOrLazy = child.resolveOr(CONFIG, () => null)
     type _ResolveOrLazy = Expect<Equals<typeof configOrLazy, AppConfig | null>>
 
     return [
         String(api),
         String(maybeConfig?.retries ?? 0),
         String(plugins.length),
+        String(registered),
         configOrValue.baseUrl,
         String(configOrLazy),
     ].join("|")
 }
 
-// Alias surface — the re-exported tsyringe pieces are public API too.
+// `ModuleMetadata` is constructible by a consumer building a container by hand.
+const metadataInit: ModuleMetadataInit = { id: "manual", container: new Container(), parent: null }
+
+// A container is constructed, never forked off a package-level singleton.
+
+// @ts-expect-error there is no global container and no `createChildContainer` on the class.
+void Container.createChildContainer()
+
+// @ts-expect-error `LazyToken` is a function that builds a deferred identifier, not a class.
+void new LazyToken(() => ApiClient)
+
+// The published surface, counted.
 // ========================================
+//
+// Every exported VALUE is touched once, so a dropped export breaks here rather than in an app, and the
+// length assertion means an ADDED export lands here too — as a deliberate decision rather than an
+// accident. The type surface below gets the same treatment.
 
-const globalContainer: DependencyContainer = Container
-const registrationOptions: RegistrationOptions = { lifecycle: Scope.Singleton }
-const frequency: Frequency = "Once"
-const disposable: Disposable = { dispose: () => Promise.resolve() }
-
-type _ScopeValues = Expect<
-    Equals<
-        typeof Scope,
-        {
-            readonly Transient: typeof Scope.Transient
-            readonly Singleton: typeof Scope.Singleton
-        }
-    >
->
-
-// Every re-exported value is touched once, so a dropped export breaks here rather than in an app.
-const aliasSurface = [
+const publicValueSurface = [
     Container,
-    Injectable,
-    Singleton,
+    Scope,
     Inject,
     InjectAll,
-    InjectWithTransform,
-    InjectAllWithTransform,
-    Delay,
-    Scope,
-    SingletonFactory,
-    ConditionalFactory,
+    Injectable,
+    LazyToken,
+    Optional,
+    decorate,
+    ModuleProvider,
+    createModule,
+    useModule,
+    useContainer,
+    useModuleContext,
+    useModuleRebuild,
+    useResolve,
+    useResolveSafe,
+    useResolveAll,
+    usePropsRef,
+    ModuleMetadata,
+    ModuleRegistry,
+    Resolver,
+    PropsRef,
+    Token,
+    makeTokenizer,
 ] as const
+type _PublicValueSurfaceSize = Expect<Equals<typeof publicValueSurface.length, 24>>
 
 // The `./types` subpath must carry the entire public type surface. Every exported name is referenced
-// once; the length assertion means an ADDED export also lands here, as a deliberate decision rather
-// than an accident.
+// once.
 type PublicTypeSurface = [
-    DependencyContainer,
+    AbstractConstructor<Logger>,
+    ClassProvider<UserStore>,
+    Constructor<ApiClient>,
+    ExistingProvider<Logger>,
+    FactoryDependency,
+    FactoryProvider<Logger>,
     InjectionToken<AppConfig>,
-    RegistrationOptions,
-    Frequency,
-    Disposable,
-    RootModuleParams,
+    OptionalFactoryDependency<AppConfig>,
+    Provider,
+    ValueProvider<AppConfig>,
     FactoryModuleParams,
-    ScopedModuleParams,
-    ModuleResolutionParams,
     ModuleResolution,
+    ModuleResolutionParams,
+    RootModuleParams,
+    ScopedModuleParams,
+    ModuleErrorHook,
     ModuleHook,
     ModuleHooks,
+    ModulePhase,
     ProviderLifecycle,
-    OptionalFactoryDependency<AppConfig>,
-    FactoryDependency,
-    ClassProvider<UserStore>,
-    ValueProvider<AppConfig>,
-    FactoryProvider<Logger>,
-    ExistingProvider<Logger>,
-    Provider,
-    CleanupFn,
+    ModuleMetadataInit,
+    ModuleMetadataProvider,
     PropsAdapter<UserProps, UserVM>,
-    ModuleProviderProps,
-    CreateModuleParams<UserProps>,
-    CreateModuleOptions<UserProps, UserVM>,
     ModuleContextValue,
+    ModuleProviderProps,
+    CreateModuleOptions<UserProps, UserVM>,
+    CreateModuleParams<UserProps>,
     UsePropsRefOptions<UserProps, UserVM>,
     UsePropsRefResult<UserVM>,
-    ProviderScope,
     TokenOptions,
     Tokenizer,
-    Constructor<ApiClient>,
 ]
-// 33 → 32: `InheritModuleParams` left with the removal of container adoption — one container = one module.
-type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 32>>
+// 32 -> 31 on the move to Inversify: `DependencyContainer`, `RegistrationOptions`, `Frequency`,
+// `Disposable`, `CleanupFn` and `ProviderScope` left with tsyringe; `AbstractConstructor`,
+// `ModuleErrorHook`, `ModulePhase`, `ModuleMetadataInit` and `ModuleMetadataProvider` arrived with the
+// container we now own.
+type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 31>>
 
 // Keep the module-scope constants that exist only to be typechecked from being flagged as dead by a
 // future `noUnusedLocals`, and give the file a single exported value to hang everything on.
 export const consumerSurface = {
-    aliasSurface,
-    conditionalLogger,
+    abstractCtor,
+    createOptions,
     createParams,
-    disposable,
     factoryDependencies,
     factoryParams,
-    frequency,
-    globalContainer,
+    metadataInit,
     moduleHooks,
     providerProps,
-    registrationOptions,
     resolutionParams,
     scopedParams,
+    transientProvider,
+    valueSurfaceSize: publicValueSurface.length,
     DUPLICATE_PLUGIN,
 } as const

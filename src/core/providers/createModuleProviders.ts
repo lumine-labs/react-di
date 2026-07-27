@@ -1,6 +1,5 @@
-import type { DependencyContainer } from "../../aliases/index.js"
+import type { Container, Provider } from "../../container/index.js"
 
-import type { Provider } from "./providers.types.js"
 import { ModuleLifecycle } from "./module-lifecycle/module-lifecycle.provider.js"
 import { ModuleMetadata } from "./module-metadata/module-metadata.provider.js"
 import { ModuleRegistry } from "./module-registry/module-registry.provider.js"
@@ -8,8 +7,8 @@ import { Resolver } from "./resolver/resolver.provider.js"
 
 export type ModuleProvidersParams = {
     id: string
-    container: DependencyContainer
-    parent: DependencyContainer | null
+    container: Container
+    parent: Container | null
 }
 
 export type ModuleProviders = {

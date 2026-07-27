@@ -69,6 +69,33 @@ function hashDeclarations(distDir) {
     return { digest: hash.digest("hex"), count: files.length }
 }
 
+/**
+ * Every dependency the packed package declares must sit in the consumer's OWN tree.
+ *
+ * The consumers live inside the repo, so `node_modules` lookup walks up into the repo root — a
+ * dependency missing from the consumer resolves there instead, at whatever version we happen to have,
+ * and `skipLibCheck` swallows the difference. That is not hypothetical: a stale consumer lockfile kept
+ * installing `tsyringe` long after the package moved to `inversify`, and both profiles stayed green
+ * because the root's copy answered every lookup.
+ */
+function assertDependenciesAreLocal(name, consumerDir, installedDir) {
+    const { dependencies = {} } = JSON.parse(readFileSync(join(installedDir, "package.json"), "utf8"))
+
+    const missing = Object.keys(dependencies).filter(
+        (dependency) =>
+            !existsSync(join(consumerDir, "node_modules", dependency)) &&
+            !existsSync(join(installedDir, "node_modules", dependency))
+    )
+
+    if (missing.length > 0) {
+        fail(
+            `${name}: ${missing.join(", ")} declared by ${packageName} but absent from the consumer's tree\n` +
+                `  their types would resolve from the repo root instead — delete ` +
+                `${join(consumerDir, "package-lock.json")} and reinstall.`
+        )
+    }
+}
+
 const rootDist = join(packageRoot, "dist")
 if (!existsSync(join(rootDist, "index.d.ts"))) {
     fail("dist/index.d.ts is missing — run `npm run build` before `npm run typecheck:consumers`.")
@@ -103,6 +130,8 @@ for (const name of consumers) {
         )
     }
     console.log(`[consumers] ${name}: installed declarations match the build (${installed.count} .d.ts files)`)
+
+    assertDependenciesAreLocal(name, consumerDir, installedDir)
 
     run("npm", ["run", "typecheck"], consumerDir)
 }

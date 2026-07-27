@@ -1,62 +1,39 @@
-// Aliases
+// Container
 // ========================================
 
-export {
-    Container,
-    Injectable,
-    Singleton,
-    Inject,
-    InjectAll,
-    InjectWithTransform,
-    InjectAllWithTransform,
-    Delay,
-    Scope,
-    SingletonFactory,
-    ConditionalFactory,
-} from "./aliases/index.js"
+export { Container } from "./container/container.js"
+export { Scope } from "./container/container.types.js"
+export { Inject, InjectAll, Injectable, LazyToken, Optional, decorate } from "./container/decorators.js"
 
-// Module resolution - Provider, Factory
+// Modules
 // ========================================
 
 export { ModuleProvider } from "./react/providers/ModuleProvider.js"
-
 export { createModule } from "./react/factories/createModule.js"
 
-// Module hooks
+// Hooks
 // ========================================
 
 export { useModule } from "./react/hooks/useModule.js"
 export { useContainer, useModuleContext, useModuleRebuild } from "./react/hooks/useModuleContext.js"
+export { useResolve, useResolveSafe } from "./react/hooks/useResolve.js"
+export { useResolveAll } from "./react/hooks/useResolveAll.js"
 export { usePropsRef } from "./react/hooks/usePropsRef.js"
 
 // System providers
 // ========================================
+
 export { ModuleMetadata } from "./core/providers/module-metadata/module-metadata.provider.js"
+export { ModuleRegistry } from "./core/providers/module-registry/module-registry.provider.js"
+export { Resolver } from "./core/providers/resolver/resolver.provider.js"
 export { PropsRef } from "./core/providers/props-ref/props-ref.provider.js"
 
-// Resolver
-// ========================================
-export { Resolver } from "./core/providers/resolver/resolver.provider.js"
-export { useResolve, useTryResolve } from "./react/hooks/useResolve.js"
-export { useResolveAll } from "./react/hooks/useResolveAll.js"
-
-// Async Teardown
+// Tokens
 // ========================================
 
-export { AsyncTeardown } from "./core/providers/async-teardown/async-teardown.provider.js"
-export { useAsyncTeardown } from "./react/hooks/useAsyncTeardown.js"
+export { Token, makeTokenizer } from "./core/tokenizer/tokenizer.js"
 
-// Tokenizer
-// ========================================
-
-export { makeTokenizer, Token } from "./core/tokenizer/tokenizer.js"
-
-// Utils
-// ========================================
-
-export { resolve, tryResolve, resolveAll, resolveOr } from "./core/resolve.js"
-
-// Public types
+// Types
 // ========================================
 
 export type * from "./types.js"

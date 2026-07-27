@@ -1,22 +1,27 @@
-import type { DependencyContainer } from "../../../aliases/index.js"
+import type { Container } from "../../../container/index.js"
 
 // Lifecycle hooks for providers
 // ========================================
 
 export type ProviderLifecycle = {
-    onModuleInit?(): void
-    onModuleMount?(): void
-    onModuleUnmount?(): void
-    onModuleDestroy?(): void
+    onModuleInit?(): unknown
+    onModuleMount?(): unknown
+    onModuleUnmount?(): unknown
+    onModuleDestroy?(): unknown
 }
 
 // Lifecycle hooks for module
 // ========================================
 
-export type ModuleHook = (container: DependencyContainer) => void
+export type ModulePhase = "init" | "mount" | "unmount" | "destroy"
+
+export type ModuleHook = (container: Container) => unknown
+export type ModuleErrorHook = (phase: ModulePhase, error: unknown) => unknown
+
 export type ModuleHooks = {
     onModuleInit?: ModuleHook
     onModuleMount?: ModuleHook
     onModuleUnmount?: ModuleHook
     onModuleDestroy?: ModuleHook
+    onModuleError?: ModuleErrorHook
 }

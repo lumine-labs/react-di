@@ -1,65 +1,57 @@
-// Alias types
+// Container
 // ========================================
 
 export type {
-    DependencyContainer,
+    AbstractConstructor,
+    ClassProvider,
+    Constructor,
+    ExistingProvider,
+    FactoryDependency,
+    FactoryProvider,
     InjectionToken,
-    RegistrationOptions,
-    Frequency,
-    Disposable,
-} from "./aliases/index.js"
+    OptionalFactoryDependency,
+    Provider,
+    Scope,
+    ValueProvider,
+} from "./container/container.types.js"
 
-// Core module types
+// Module resolution
 // ========================================
 
 export type {
-    RootModuleParams,
     FactoryModuleParams,
-    ScopedModuleParams,
-    ModuleResolutionParams,
     ModuleResolution,
+    ModuleResolutionParams,
+    RootModuleParams,
+    ScopedModuleParams,
 } from "./core/module/resolution.types.js"
+
+// Lifecycle
+// ========================================
+
 export type {
+    ModuleErrorHook,
     ModuleHook,
     ModuleHooks,
+    ModulePhase,
     ProviderLifecycle,
 } from "./core/providers/module-lifecycle/module-lifecycle.types.js"
 
-// Core provider types
+// System providers
 // ========================================
 
-export type {
-    OptionalFactoryDependency,
-    FactoryDependency,
-    ClassProvider,
-    ValueProvider,
-    FactoryProvider,
-    ExistingProvider,
-    Provider,
-} from "./core/providers/providers.types.js"
-export type { CleanupFn } from "./core/providers/async-teardown/async-teardown.provider.js"
-
-export type { ProviderScope } from "./core/providers/providers.types.js"
-
-// Props bridge types
-// ========================================
-
+export type { ModuleMetadataInit, ModuleMetadataProvider } from "./core/providers/module-metadata/module-metadata.provider.js"
 export type { PropsAdapter } from "./core/providers/props-ref/props-ref.provider.js"
 
-// React surface types
+// React surface
 // ========================================
 
-export type { ModuleProviderProps } from "./react/providers/ModuleProvider.js"
-export type { CreateModuleParams, CreateModuleOptions } from "./react/factories/createModule.js"
 export type { ModuleContextValue } from "./react/context/ModuleContext.js"
+export type { ModuleProviderProps } from "./react/providers/ModuleProvider.js"
+export type { CreateModuleOptions, CreateModuleParams } from "./react/factories/createModule.js"
 export type { UsePropsRefOptions, UsePropsRefResult } from "./react/hooks/usePropsRef.js"
 
-// Tokenizer types
+// Tokens
 // ========================================
 
 export type { TokenOptions, Tokenizer } from "./core/tokenizer/tokenizer.js"
-
-// Shared types
-// ========================================
-
-export type { Constructor } from "./shared/types.js"
