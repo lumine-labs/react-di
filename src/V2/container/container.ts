@@ -7,7 +7,8 @@ import {
     type InjectionToken,
     type OptionalFactoryDependency,
     type Provider,
-} from "./container.types.js"
+} from "./container.types"
+import { describeToken } from "../shared/describeToken"
 
 // Container
 // ========================================
@@ -28,17 +29,23 @@ export class Container {
     // Registration
     // ========================================
 
-    register(provider: Provider): void {
+    register(provider: Provider | Provider[]): void {
+        if (Array.isArray(provider)) {
+            for (const p of provider) this.register(p)
+            return
+        }
+
         if (typeof provider === "function") {
+            this.#assertFree(provider)
             this.#bindClass(provider, provider, Scope.Singleton)
             return
         }
 
-        // Guarded before the `in` checks below, which throw a raw TypeError on anything that is not an
-        // object. Unreachable from TypeScript; reachable from JavaScript, and worth a real message there.
         if (provider === null || typeof provider !== "object") {
             throw new Error(invalidProvider(provider))
         }
+
+        this.#assertFree(provider.provide)
 
         if ("useValue" in provider) {
             this.#inversify.bind(this.#id(provider.provide)).toConstantValue(provider.useValue)
@@ -70,9 +77,6 @@ export class Container {
             return
         }
 
-        // Reachable only from JavaScript, or from a cast — the union has no sixth member. Registering
-        // nothing at all is the worst outcome here: the token stays unbound and the failure surfaces later
-        // as a resolution error somewhere unrelated.
         throw new Error(invalidProvider(provider))
     }
 
@@ -120,8 +124,8 @@ export class Container {
         return fallback
     }
 
-    resolveAll<T>(token: InjectionToken<T>, chained = true): T[] {
-        return this.#inversify.getAll(this.#id(token), { chained })
+    resolveAll<T>(token: InjectionToken<T>): T[] {
+        return this.#inversify.getAll(this.#id(token), { chained: true })
     }
 
     // Internals
@@ -129,6 +133,12 @@ export class Container {
 
     #id<T>(token: InjectionToken<T>): ServiceIdentifier<T> {
         return token
+    }
+
+    #assertFree(token: InjectionToken<unknown>): void {
+        if (this.#inversify.isCurrentBound(this.#id(token))) {
+            throw new Error(alreadyRegistered(token))
+        }
     }
 
     #bindClass(token: InjectionToken<unknown>, implementation: Constructor<unknown>, scope: Scope): void {
@@ -169,11 +179,8 @@ function isOptionalDependency(dependency: FactoryDependency): dependency is Opti
     return typeof dependency === "object" && dependency !== null && "optional" in dependency && dependency.optional
 }
 
-function describe(token: InjectionToken<unknown>): string {
-    if (typeof token === "function") return token.name || "(anonymous class)"
-    if (typeof token === "symbol") return token.description ?? token.toString()
-    return String(token)
-}
+// Errors
+// ========================================
 
 function invalidProvider(provider: never): string {
     const candidate = provider as { provide?: InjectionToken<unknown> } | null | undefined
@@ -182,7 +189,7 @@ function invalidProvider(provider: never): string {
 
     const subject =
         provide !== undefined
-            ? `Provider for ${describe(provide)}`
+            ? `Provider for ${describeToken(provide)}`
             : isObject
               ? "Provider"
               : `Provider ${String(provider)}`
@@ -190,8 +197,12 @@ function invalidProvider(provider: never): string {
     return `${subject} has no recognised form — expected a class, or an object with one of useClass, useValue, useFactory or useExisting.`
 }
 
+function alreadyRegistered(token: InjectionToken<unknown>): string {
+    return `Token ${describeToken(token)} is already registered on this container. One token, one registration — resolve several instances from separate containers with \`resolveAll\`, or give each provider its own token.`
+}
+
 function notRegistered(token: InjectionToken<unknown>, recursive: boolean): string {
     return recursive
-        ? `Token ${describe(token)} is not registered in this container or any ancestor.`
-        : `Token ${describe(token)} is not registered in this container (searched that container only).`
+        ? `Token ${describeToken(token)} is not registered in this container or any ancestor.`
+        : `Token ${describeToken(token)} is not registered in this container (searched that container only).`
 }

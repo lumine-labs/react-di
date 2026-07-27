@@ -1,6 +1,6 @@
-export { Container } from "./container.js"
+export { Container } from "./container"
 
-export { Scope } from "./container.types.js"
+export { Scope } from "./container.types"
 
 export type {
     AbstractConstructor,
@@ -13,6 +13,6 @@ export type {
     OptionalFactoryDependency,
     Provider,
     ValueProvider,
-} from "./container.types.js"
+} from "./container.types"
 
-export { Delay, Inject, InjectAll, Injectable, Optional, decorate } from "./decorators.js"
+export { Inject, LazyToken, InjectAll, Injectable, Optional, decorate } from "./decorators"

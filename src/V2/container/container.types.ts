@@ -1,15 +1,10 @@
+import { Enum } from "@luminelabs/toolkit"
+
 // Tokens
 // ========================================
 
-import { Enum } from "@luminelabs/toolkit"
-
 export type Constructor<T = unknown> = new (...args: any[]) => T
 export type AbstractConstructor<T = unknown> = abstract new (...args: any[]) => T
-
-/**
- * Anything a provider can be registered under. Structurally identical to Inversify's
- * `ServiceIdentifier`, declared here so nothing outside this directory names an Inversify type.
- */
 export type InjectionToken<T = unknown> = string | symbol | Constructor<T> | AbstractConstructor<T>
 
 // Scope
