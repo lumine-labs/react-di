@@ -138,6 +138,19 @@ export class Container {
         return this.#inversify.getAll(this.#id(token), { chained: true })
     }
 
+    // Construction
+    // ========================================
+
+    construct<T>(cls: Constructor<T>): T {
+        // Build in a throwaway child so THIS container is never mutated: bind the class to itself
+        // transiently, resolve once — its @Inject deps chain up to this container — then discard the
+        // child. Nothing is registered here, a fresh instance comes back every call, and an unresolved
+        // dependency throws from `get` (inversify has no resolve-unregistered-class primitive in 8.x).
+        const scratch = new InversifyContainer({ parent: this.#inversify, jitless: true })
+        scratch.bind(this.#id(cls)).toSelf().inTransientScope()
+        return scratch.get(this.#id(cls))
+    }
+
     // Internals
     // ========================================
 
