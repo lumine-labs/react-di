@@ -5,16 +5,18 @@ import { useState, type ReactNode } from "react"
 import { Container } from "../../src/container/index.js"
 import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
-import { useModuleContext, useModuleRebuild } from "../../src/react/hooks/useModuleContext.js"
+import { useContainer, useModuleContext, useModuleRebuild } from "../../src/react/hooks/useModuleContext.js"
 import { useResolveSafe } from "../../src/react/hooks/useResolve.js"
+import { Root } from "../setup/react.js"
 import { flush, tracked } from "../setup/helpers.js"
 
 // Rebuild
 // ========================================
 //
-// A rebuild resolves a fresh module *first* and tears the outgoing one down afterwards, from the effect
-// that the swapped resolution invalidates. So the phase order across a rebuild is
-// new:init → old:unmount → old:destroy → new:mount, and both containers are briefly alive at once.
+// Rebuild is a ModuleProvider concern — the App is owned outside the tree and never rebuilds, so every
+// subject here is a scoped `<ModuleProvider>` under a stable `<Root>`. A rebuild resolves a fresh module
+// *first* and tears the outgoing one down afterwards: new:init → old:unmount → old:destroy → new:mount,
+// with both containers briefly alive at once.
 
 const DYNAMIC = Symbol.for("tests.rebuild.dynamic")
 
@@ -29,9 +31,11 @@ describe("rebuildOn", () => {
         const Service = tracked(log, "S")
 
         render(
-            <ModuleProvider root providers={[Service]} rebuildOn={["initial"]}>
-                <div />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[Service]} rebuildOn={["initial"]}>
+                    <div />
+                </ModuleProvider>
+            </Root>
         )
 
         expect(log).toEqual(["S:ctor", "S:init", "S:mount"])
@@ -46,9 +50,11 @@ describe("rebuildOn", () => {
             const [tick, setTick] = useState(0)
             bump = () => setTick((value) => value + 1)
             return (
-                <ModuleProvider root providers={[Service]} rebuildOn={["stable"]}>
-                    <span data-testid="tick">{tick}</span>
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider providers={[Service]} rebuildOn={["stable"]}>
+                        <span data-testid="tick">{tick}</span>
+                    </ModuleProvider>
+                </Root>
             )
         }
         let bump: (() => void) | null = null
@@ -70,9 +76,11 @@ describe("rebuildOn", () => {
 
         function Tree({ dep }: { dep: number }): ReactNode {
             return (
-                <ModuleProvider root providers={[Service]} rebuildOn={[dep]}>
-                    <div />
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider providers={[Service]} rebuildOn={[dep]}>
+                        <div />
+                    </ModuleProvider>
+                </Root>
             )
         }
 
@@ -92,9 +100,11 @@ describe("rebuildOn", () => {
 
         function Tree({ dep }: { dep: number[] }): ReactNode {
             return (
-                <ModuleProvider root providers={[Service]} rebuildOn={dep}>
-                    <div />
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider providers={[Service]} rebuildOn={dep}>
+                        <div />
+                    </ModuleProvider>
+                </Root>
             )
         }
 
@@ -113,9 +123,11 @@ describe("rebuildOn", () => {
 
         function Tree({ dep }: { dep: number }): ReactNode {
             return (
-                <ModuleProvider root providers={[Service]} rebuildOn={[dep]}>
-                    <div />
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider providers={[Service]} rebuildOn={[dep]}>
+                        <div />
+                    </ModuleProvider>
+                </Root>
             )
         }
 
@@ -135,9 +147,11 @@ describe("rebuildOn", () => {
 
         function Tree({ dep }: { dep: number[] | undefined }): ReactNode {
             return (
-                <ModuleProvider root providers={[Service]} rebuildOn={dep}>
-                    <div />
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider providers={[Service]} rebuildOn={dep}>
+                        <div />
+                    </ModuleProvider>
+                </Root>
             )
         }
 
@@ -165,16 +179,17 @@ describe("manual rebuild", () => {
         let inits = 0
 
         render(
-            <ModuleProvider
-                root
-                providers={[Service]}
-                onModuleInit={() => log.push(`module:init#${++inits}`)}
-                onModuleMount={() => log.push("module:mount")}
-                onModuleUnmount={() => log.push("module:unmount")}
-                onModuleDestroy={() => log.push("module:destroy")}
-            >
-                <Rebuilder capture={(fn) => (rebuild = fn)} />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider
+                    providers={[Service]}
+                    onModuleInit={() => log.push(`module:init#${++inits}`)}
+                    onModuleMount={() => log.push("module:mount")}
+                    onModuleUnmount={() => log.push("module:unmount")}
+                    onModuleDestroy={() => log.push("module:destroy")}
+                >
+                    <Rebuilder capture={(fn) => (rebuild = fn)} />
+                </ModuleProvider>
+            </Root>
         )
 
         expect(log).toEqual(["S:ctor", "module:init#1", "S:init", "module:mount", "S:mount"])
@@ -205,15 +220,17 @@ describe("manual rebuild", () => {
         let rebuild: (() => void) | null = null
 
         function Probe(): ReactNode {
-            containers.push(useModuleContext().container)
+            containers.push(useContainer())
             return null
         }
 
         render(
-            <ModuleProvider root>
-                <Rebuilder capture={(fn) => (rebuild = fn)} />
-                <Probe />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider>
+                    <Rebuilder capture={(fn) => (rebuild = fn)} />
+                    <Probe />
+                </ModuleProvider>
+            </Root>
         )
 
         await act(async () => {
@@ -231,9 +248,11 @@ describe("manual rebuild", () => {
         let rebuild: (() => void) | null = null
 
         render(
-            <ModuleProvider root providers={[Service]}>
-                <Rebuilder capture={(fn) => (rebuild = fn)} />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[Service]}>
+                    <Rebuilder capture={(fn) => (rebuild = fn)} />
+                </ModuleProvider>
+            </Root>
         )
         log.length = 0
 
@@ -253,9 +272,11 @@ describe("manual rebuild", () => {
         let rebuild: (() => void) | null = null
 
         render(
-            <ModuleProvider root providers={[Service]}>
-                <Rebuilder capture={(fn) => (rebuild = fn)} />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[Service]}>
+                    <Rebuilder capture={(fn) => (rebuild = fn)} />
+                </ModuleProvider>
+            </Root>
         )
 
         await act(async () => {
@@ -275,25 +296,25 @@ describe("manual rebuild", () => {
         let rebuildB: (() => void) | null = null
 
         function ProbeA(): ReactNode {
-            withParamsId.push(useModuleContext().id)
+            withParamsId.push(useModuleContext().module.id)
             return null
         }
         function ProbeB(): ReactNode {
-            generated.push(useModuleContext().id)
+            generated.push(useModuleContext().module.id)
             return null
         }
 
         render(
-            <>
-                <ModuleProvider root id="feature:stable">
+            <Root>
+                <ModuleProvider id="feature:stable">
                     <Rebuilder capture={(fn) => (rebuildA = fn)} />
                     <ProbeA />
                 </ModuleProvider>
-                <ModuleProvider root>
+                <ModuleProvider>
                     <Rebuilder capture={(fn) => (rebuildB = fn)} />
                     <ProbeB />
                 </ModuleProvider>
-            </>
+            </Root>
         )
 
         await act(async () => {
@@ -308,56 +329,24 @@ describe("manual rebuild", () => {
         expect(new Set(generated).size).toBe(generated.length)
         for (const id of generated) expect(id).toMatch(/^id:\d+$/)
     })
-
-    it("rebuilds a factory module through a fresh factory call", async () => {
-        const seen: string[] = []
-        let calls = 0
-        let rebuild: (() => void) | null = null
-
-        function Probe(): ReactNode {
-            seen.push(useResolveSafe<string>(DYNAMIC)!)
-            return null
-        }
-
-        render(
-            <ModuleProvider
-                factory={() => {
-                    calls += 1
-                    const container = new Container()
-                    container.register({ provide: DYNAMIC, useValue: `factory-${calls}` })
-                    return container
-                }}
-            >
-                <Rebuilder capture={(fn) => (rebuild = fn)} />
-                <Probe />
-            </ModuleProvider>
-        )
-
-        expect(seen).toEqual(["factory-1"])
-
-        await act(async () => {
-            rebuild?.()
-        })
-
-        expect(calls).toBe(2)
-        expect(seen.at(-1)).toBe("factory-2")
-    })
 })
 
 describe("rebuild across a module tree", () => {
-    it("rebuilds a scoped child when the parent container changes", async () => {
+    it("rebuilds a scoped child when the parent module changes", async () => {
         const log: string[] = []
         const Parent = tracked(log, "P")
         const Child = tracked(log, "C")
         let rebuild: (() => void) | null = null
 
         render(
-            <ModuleProvider root providers={[Parent]}>
-                <Rebuilder capture={(fn) => (rebuild = fn)} />
-                <ModuleProvider providers={[Child]}>
-                    <div />
+            <Root>
+                <ModuleProvider providers={[Parent]}>
+                    <Rebuilder capture={(fn) => (rebuild = fn)} />
+                    <ModuleProvider providers={[Child]}>
+                        <div />
+                    </ModuleProvider>
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
         log.length = 0
 
@@ -388,22 +377,24 @@ describe("rebuild across a module tree", () => {
         let parentContainer: Container | null = null
 
         function ParentProbe(): ReactNode {
-            parentContainer = useModuleContext().container
+            parentContainer = useContainer()
             return null
         }
         function ChildProbe(): ReactNode {
-            childContainers.push(useModuleContext().container)
+            childContainers.push(useContainer())
             return null
         }
 
         render(
-            <ModuleProvider root id="parent">
-                <Rebuilder capture={(fn) => (rebuild = fn)} />
-                <ParentProbe />
-                <ModuleProvider id="child">
-                    <ChildProbe />
+            <Root>
+                <ModuleProvider id="parent">
+                    <Rebuilder capture={(fn) => (rebuild = fn)} />
+                    <ParentProbe />
+                    <ModuleProvider id="child">
+                        <ChildProbe />
+                    </ModuleProvider>
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
 
         await act(async () => {
@@ -417,20 +408,22 @@ describe("rebuild across a module tree", () => {
 
     it("cascades down two scoped levels", async () => {
         const log: string[] = []
-        const Root = tracked(log, "R")
+        const Top = tracked(log, "R")
         const Mid = tracked(log, "M")
         const Leaf = tracked(log, "L")
         let rebuild: (() => void) | null = null
 
         render(
-            <ModuleProvider root providers={[Root]}>
-                <Rebuilder capture={(fn) => (rebuild = fn)} />
-                <ModuleProvider providers={[Mid]}>
-                    <ModuleProvider providers={[Leaf]}>
-                        <div />
+            <Root>
+                <ModuleProvider providers={[Top]}>
+                    <Rebuilder capture={(fn) => (rebuild = fn)} />
+                    <ModuleProvider providers={[Mid]}>
+                        <ModuleProvider providers={[Leaf]}>
+                            <div />
+                        </ModuleProvider>
                     </ModuleProvider>
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
         log.length = 0
 
@@ -439,7 +432,7 @@ describe("rebuild across a module tree", () => {
         })
         await flush()
 
-        expect(Root.counts).toEqual({ init: 2, mount: 2, unmount: 1, destroy: 1 })
+        expect(Top.counts).toEqual({ init: 2, mount: 2, unmount: 1, destroy: 1 })
         expect(Mid.counts).toEqual({ init: 2, mount: 2, unmount: 1, destroy: 1 })
         expect(Leaf.counts).toEqual({ init: 2, mount: 2, unmount: 1, destroy: 1 })
     })
@@ -458,12 +451,14 @@ describe("rebuild across a module tree", () => {
             const [enabled, setEnabled] = useState(false)
             enable = () => setEnabled(true)
             return (
-                <ModuleProvider root providers={enabled ? [{ provide: DYNAMIC, useValue: "enabled" }] : []}>
-                    <Rebuilder capture={(fn) => (rebuild = fn)} />
-                    <ModuleProvider>
-                        <Probe />
+                <Root>
+                    <ModuleProvider providers={enabled ? [{ provide: DYNAMIC, useValue: "enabled" }] : []}>
+                        <Rebuilder capture={(fn) => (rebuild = fn)} />
+                        <ModuleProvider>
+                            <Probe />
+                        </ModuleProvider>
                     </ModuleProvider>
-                </ModuleProvider>
+                </Root>
             )
         }
 
@@ -489,12 +484,14 @@ describe("rebuild across a module tree", () => {
         let rebuildChild: (() => void) | null = null
 
         render(
-            <ModuleProvider root>
-                <Rebuilder capture={(fn) => (rebuildParent = fn)} />
-                <ModuleProvider providers={[Child]}>
-                    <Rebuilder capture={(fn) => (rebuildChild = fn)} />
+            <Root>
+                <ModuleProvider>
+                    <Rebuilder capture={(fn) => (rebuildParent = fn)} />
+                    <ModuleProvider providers={[Child]}>
+                        <Rebuilder capture={(fn) => (rebuildChild = fn)} />
+                    </ModuleProvider>
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
 
         await act(async () => {
@@ -517,11 +514,13 @@ describe("rebuild across a module tree", () => {
         let rebuildChild: (() => void) | null = null
 
         render(
-            <ModuleProvider root providers={[Parent]}>
-                <ModuleProvider providers={[Child]}>
-                    <Rebuilder capture={(fn) => (rebuildChild = fn)} />
+            <Root>
+                <ModuleProvider providers={[Parent]}>
+                    <ModuleProvider providers={[Child]}>
+                        <Rebuilder capture={(fn) => (rebuildChild = fn)} />
+                    </ModuleProvider>
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
         log.length = 0
 
@@ -532,69 +531,5 @@ describe("rebuild across a module tree", () => {
 
         expect(log).toEqual(["C:ctor", "C:init", "C:unmount", "C:destroy", "C:mount"])
         expect(Parent.counts).toEqual({ init: 1, mount: 1, unmount: 0, destroy: 0 })
-    })
-
-    it("does not rebuild a nested root module when its parent container changes", async () => {
-        // `root` opts out of the parent-container cascade, so it heads its own lifecycle tree: it never
-        // attaches to the ancestor's registry, and the outgoing parent's destroy cannot claim it.
-        const log: string[] = []
-        const Child = tracked(log, "C")
-        const childContainers: Container[] = []
-        let rebuild: (() => void) | null = null
-
-        function ChildProbe(): ReactNode {
-            childContainers.push(useModuleContext().container)
-            return null
-        }
-
-        render(
-            <ModuleProvider root>
-                <Rebuilder capture={(fn) => (rebuild = fn)} />
-                <ModuleProvider root providers={[Child]}>
-                    <ChildProbe />
-                </ModuleProvider>
-            </ModuleProvider>
-        )
-        log.length = 0
-
-        await act(async () => {
-            rebuild?.()
-        })
-        await flush()
-
-        expect(new Set(childContainers).size).toBe(1)
-        expect(Child.counts).toEqual({ init: 1, mount: 1, unmount: 0, destroy: 0 })
-        expect(log).toEqual([])
-    })
-
-    it("does not rebuild or destroy a nested factory module when its parent container changes", async () => {
-        const log: string[] = []
-        const Child = tracked(log, "C")
-        const childContainers: Container[] = []
-        let rebuild: (() => void) | null = null
-
-        function ChildProbe(): ReactNode {
-            childContainers.push(useModuleContext().container)
-            return null
-        }
-
-        render(
-            <ModuleProvider root>
-                <Rebuilder capture={(fn) => (rebuild = fn)} />
-                <ModuleProvider factory={() => new Container()} providers={[Child]}>
-                    <ChildProbe />
-                </ModuleProvider>
-            </ModuleProvider>
-        )
-        log.length = 0
-
-        await act(async () => {
-            rebuild?.()
-        })
-        await flush()
-
-        expect(new Set(childContainers).size).toBe(1)
-        expect(Child.counts).toEqual({ init: 1, mount: 1, unmount: 0, destroy: 0 })
-        expect(log).toEqual([])
     })
 })

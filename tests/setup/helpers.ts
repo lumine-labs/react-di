@@ -1,4 +1,5 @@
 import { decorate, Injectable } from "../../src/container/decorators.js"
+import { App, Module, type ModuleParams } from "../../src/core/module/module.js"
 import type { Provider } from "../../src/types.js"
 
 // Shared test helpers
@@ -8,6 +9,27 @@ import type { Provider } from "../../src/types.js"
 // through `decorate()`, and constructor injection needs an explicit `Inject(TOKEN)` per parameter.
 
 export const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+// Imperative construction
+// ========================================
+//
+// 0.5.0 splits construction from init: `new Module(...)` builds and registers, `init()` arms the lifecycle.
+// These builders bundle the two so a test that only cares about a live module reads as one line — exactly
+// what `ModuleProvider`/`AppProvider` do for you in React. Tests that assert the split itself construct raw.
+
+/** An initialized App (parent `null`), ready to drive through mount / unmount / destroy. */
+export function makeApp(params?: ModuleParams): App {
+    const app = new App(params)
+    app.init()
+    return app
+}
+
+/** An initialized scoped child of `parent`. Throws at construction if `parent` is not yet initialized. */
+export function makeChild(parent: Module, params?: ModuleParams): Module {
+    const child = new Module(parent, params)
+    child.init()
+    return child
+}
 
 export type HookCounts = { init: number; mount: number; unmount: number; destroy: number }
 

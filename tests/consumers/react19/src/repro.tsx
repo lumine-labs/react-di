@@ -9,7 +9,7 @@
  * Nothing here runs. `tsc --noEmit` is the entire test, and two kinds of assertion carry the weight:
  *
  *   1. `Expect<Equals<A, B>>` — pins an INFERRED type exactly. The dangerous regression is not a
- *      compile error, it is a silent widening to `any`: `createModule<UserProps>()` handing back
+ *      compile error, it is a silent widening to `any`: `createModuleComponent<UserProps>()` handing back
  *      `PropsRef<any>` compiles perfectly and destroys every consumer downstream. `Equals` is the
  *      strict variant, so `any` is never equal to a concrete type.
  *   2. `@ts-expect-error` — errors that MUST stay errors. When a type widens to `any` the expected
@@ -28,12 +28,14 @@ import { useState } from "react"
 import type { ComponentType, ReactElement, ReactNode } from "react"
 
 import {
+    App,
+    AppProvider,
     Container,
     Inject,
     InjectAll,
     Injectable,
     LazyToken,
-    ModuleMetadata,
+    Module,
     ModuleProvider,
     ModuleRegistry,
     Optional,
@@ -41,11 +43,10 @@ import {
     Resolver,
     Scope,
     Token,
-    createModule,
+    createModuleComponent,
     decorate,
     makeTokenizer,
     useContainer,
-    useModule,
     useModuleContext,
     useModuleRebuild,
     usePropsRef,
@@ -58,31 +59,26 @@ import {
 // types must never have to reach into `.` or into `dist/`.
 import type {
     AbstractConstructor,
+    AppProviderProps,
     ClassProvider,
     Constructor,
-    CreateModuleOptions,
-    CreateModuleParams,
+    CreateModuleComponentOptions,
+    CreateModuleComponentParams,
     ExistingProvider,
     FactoryDependency,
-    FactoryModuleParams,
     FactoryProvider,
     InjectionToken,
     ModuleContextValue,
     ModuleErrorHook,
     ModuleHook,
     ModuleHooks,
-    ModuleMetadataInit,
-    ModuleMetadataProvider,
+    ModuleParams,
     ModulePhase,
     ModuleProviderProps,
-    ModuleResolution,
-    ModuleResolutionParams,
     OptionalFactoryDependency,
     PropsAdapter,
     Provider,
     ProviderLifecycle,
-    RootModuleParams,
-    ScopedModuleParams,
     TokenOptions,
     Tokenizer,
     UsePropsRefOptions,
@@ -99,6 +95,7 @@ type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B 
 type IsAny<T> = 0 extends 1 & T ? true : false
 type Not<T extends boolean> = T extends true ? false : true
 type Expect<T extends true> = T
+type HasKey<T, K extends PropertyKey> = K extends keyof T ? true : false
 
 // The gate is only worth something if the strict flags are really in effect — a tsconfig regression
 // that quietly relaxes them would otherwise leave everything below still green.
@@ -121,7 +118,7 @@ type UserProps = {
     limit?: number
 }
 
-// The view model an adapter produces: the `T !== P` shape of `usePropsRef` / `createModule`.
+// The view model an adapter produces: the `T !== P` shape of `usePropsRef` / `createModuleComponent`.
 type UserVM = {
     id: string
     take: number
@@ -237,35 +234,44 @@ class UserStore implements ProviderLifecycle {
     }
 }
 
-// The three system providers a consumer is allowed to inject.
+// The system providers a consumer is allowed to inject. `Module` is the substrate: injecting it reaches
+// the module instance and its container directly, where injecting `ModuleMetadata` used to.
 @Injectable()
 class Diagnostics {
     constructor(
-        @Inject(ModuleMetadata) private readonly metadata: ModuleMetadata,
+        @Inject(Module) private readonly module: Module,
         @Inject(ModuleRegistry) private readonly registry: ModuleRegistry,
         @Inject(Resolver) private readonly resolver: Resolver,
         @Inject(LOGGER) @Optional() private readonly logger: Logger | undefined
     ) {}
 
     describe(): string {
-        const id = this.metadata.id
-        type _MetadataId = Expect<Equals<typeof id, string>>
+        const id = this.module.id
+        type _ModuleId = Expect<Equals<typeof id, string>>
 
-        const ownContainer = this.metadata.container
-        type _MetadataContainer = Expect<Equals<typeof ownContainer, Container>>
+        const ownContainer = this.module.container
+        type _ModuleContainer = Expect<Equals<typeof ownContainer, Container>>
 
-        const parent = this.metadata.parent
-        type _MetadataParent = Expect<Equals<typeof parent, Container | null>>
+        // The parent is a Module now, not a bare Container — the tree is modules all the way up.
+        const parent = this.module.parent
+        type _ModuleParent = Expect<Equals<typeof parent, Module | null>>
 
-        const children = this.metadata.children
-        type _MetadataChildren = Expect<Equals<typeof children, ReadonlySet<Container>>>
+        const children = this.module.children
+        type _ModuleChildren = Expect<Equals<typeof children, ReadonlySet<Module>>>
 
-        // A declared snapshot, not the providers themselves — one entry per registration.
-        const declared = this.metadata.providers
-        type _MetadataProviders = Expect<Equals<typeof declared, readonly ModuleMetadataProvider[]>>
+        // A declared snapshot, not the providers themselves — one entry per registration. `ProviderSnapshot`
+        // is deliberately NOT on the public surface, so the shape is pinned through the token it carries.
+        const declared = this.module.providers
+        type _ModuleProvidersIsNotAny = Expect<Not<IsAny<typeof declared>>>
+        const declaredToken = declared[0]?.token
+        type _ProviderSnapshotToken = Expect<Equals<typeof declaredToken, InjectionToken<unknown> | undefined>>
 
-        const committed = this.metadata.committed
-        type _MetadataCommitted = Expect<Equals<typeof committed, boolean>>
+        // `committed` is gone; the module exposes `initialized` / `mounted` instead.
+        const initialized = this.module.initialized
+        type _ModuleInitialized = Expect<Equals<typeof initialized, boolean>>
+
+        const mounted = this.module.mounted
+        type _ModuleMounted = Expect<Equals<typeof mounted, boolean>>
 
         const store = this.resolver.resolve(UserStore)
         type _ResolverResolve = Expect<Equals<typeof store, UserStore>>
@@ -280,11 +286,13 @@ class Diagnostics {
             id,
             String(children.size),
             String(declared.length),
-            String(committed),
+            String(initialized),
+            String(mounted),
             store.userId,
             maybeLogger ? "y" : "n",
             String(allPlugins.length),
             this.logger ? "y" : "n",
+            String(declaredToken),
             this.walk(),
         ].join("/")
     }
@@ -391,14 +399,16 @@ const valueProvider: ValueProvider<AppConfig> = {
     useValue: { baseUrl: "https://api.example.com", retries: 2 },
 }
 
-// 4. factory provider, with `inject` (a required and an optional dependency)
-const optionalMetadata: OptionalFactoryDependency<ModuleMetadata> = { token: ModuleMetadata, optional: true }
-const factoryDependencies: FactoryDependency[] = [CONFIG, optionalMetadata, ApiClient]
+// 4. factory provider, with `inject` (a required and an optional dependency). The optional dependency is
+// the module instance itself — reached through the `Module` token, the way factories used to reach
+// `ModuleMetadata`.
+const optionalModule: OptionalFactoryDependency<Module> = { token: Module, optional: true }
+const factoryDependencies: FactoryDependency[] = [CONFIG, optionalModule, ApiClient]
 const factoryProvider: FactoryProvider<Logger> = {
     provide: LOGGER,
-    useFactory: (config: AppConfig, metadata?: ModuleMetadata) =>
-        new ConsoleLogger(`[${metadata?.id ?? "detached"}] ${config.baseUrl} `),
-    inject: [CONFIG, optionalMetadata],
+    useFactory: (config: AppConfig, module?: Module) =>
+        new ConsoleLogger(`[${module?.id ?? "detached"}] ${config.baseUrl} `),
+    inject: [CONFIG, optionalModule],
     scope: Scope.Singleton,
 }
 
@@ -480,11 +490,11 @@ const userAdapter: PropsAdapter<UserProps, UserVM> = {
 
 const USER_VM = Token<PropsRef<UserVM>>("consumer.user-vm")
 
-// createModule
+// createModuleComponent
 // ========================================
 
 // (a) params object, no options — `T` defaults to `P`.
-const UserModule = createModule<UserProps>({
+const UserModule = createModuleComponent<UserProps>({
     id: "user",
     providers: moduleProviders,
     onModuleInit: (container) => {
@@ -502,9 +512,9 @@ type _UserModuleProps = Expect<Equals<typeof UserModule, ComponentType<UserProps
 type _UserModuleIsNotAny = Expect<Not<IsAny<typeof UserModule>>>
 
 // (b) params derived from props — the callback parameter must be `P`, not `any`.
-const UserFactoryModule = createModule<UserProps>((props) => {
-    type _CreateModuleParamsProps = Expect<Equals<typeof props, UserProps>>
-    type _CreateModuleParamsPropsAreNotAny = Expect<Not<IsAny<typeof props>>>
+const UserFactoryModule = createModuleComponent<UserProps>((props) => {
+    type _CreateModuleComponentParamsProps = Expect<Equals<typeof props, UserProps>>
+    type _CreateModuleComponentParamsPropsAreNotAny = Expect<Not<IsAny<typeof props>>>
     return {
         id: `user-${props.userId}`,
         providers: moduleProviders,
@@ -514,17 +524,17 @@ const UserFactoryModule = createModule<UserProps>((props) => {
 type _UserFactoryModuleProps = Expect<Equals<typeof UserFactoryModule, ComponentType<UserProps & { children?: ReactNode }>>>
 
 // (c) `{ adapter, token }` — the component's props stay `P` while the bridged value becomes `T`.
-const UserVMModule = createModule<UserProps, UserVM>(
+const UserVMModule = createModuleComponent<UserProps, UserVM>(
     { providers: moduleProviders },
     { adapter: userAdapter, token: USER_VM }
 )
 type _UserVMModuleProps = Expect<Equals<typeof UserVMModule, ComponentType<UserProps & { children?: ReactNode }>>>
 
 // (d) no arguments at all — a module that only owns a scope.
-const BareModule = createModule()
+const BareModule = createModuleComponent()
 
 // @ts-expect-error the adapter's input is the component's props, not the bridged type.
-const mismatchedAdapterModule = createModule<UserProps, UserVM>({}, { adapter: { create: (initial: UserVM) => initial, update: ({ current }) => current } })
+const mismatchedAdapterModule = createModuleComponent<UserProps, UserVM>({}, { adapter: { create: (initial: UserVM) => initial, update: ({ current }) => current } })
 void mismatchedAdapterModule
 
 // The module component's props are exactly `P & { children?: ReactNode }`.
@@ -542,13 +552,10 @@ const moduleMistypedProp = <UserModule userId={1} />
 void moduleMistypedProp
 
 // Typed parameter values, so the parameter unions stay pinned as well.
-const createParams: CreateModuleParams<UserProps> = (props) => ({ id: `user-${props.userId}`, providers: [ApiClient] })
-const createOptions: CreateModuleOptions<UserProps, UserVM> = { adapter: userAdapter, token: USER_VM }
-const rootParams: RootModuleParams = { root: true, providers: [ApiClient] }
-const scopedParams: ScopedModuleParams = { providers: [ApiClient], rebuildOn: [1, "a"] }
-const factoryParams: FactoryModuleParams = { factory: () => new Container(), providers: [ApiClient] }
-const resolutionParams: ModuleResolutionParams = rootParams
-const providerProps: ModuleProviderProps = { root: true, providers: [ApiClient], children: null }
+const createParams: CreateModuleComponentParams<UserProps> = (props) => ({ id: `user-${props.userId}`, providers: [ApiClient] })
+const createOptions: CreateModuleComponentOptions<UserProps, UserVM> = { adapter: userAdapter, token: USER_VM }
+const moduleParams: ModuleParams = { id: "scoped", providers: [ApiClient] }
+const providerProps: ModuleProviderProps = { providers: [ApiClient], rebuildOn: [1, "a"], children: null }
 
 const moduleHook: ModuleHook = (container) => {
     type _ModuleHookContainer = Expect<Equals<typeof container, Container>>
@@ -567,30 +574,36 @@ const moduleHooks: ModuleHooks = {
     onModuleError: moduleErrorHook,
 }
 
-declare const someResolution: ModuleResolution
-type _ModuleResolutionShape = Expect<Equals<typeof someResolution, { container: Container; id: string }>>
+// Params negative space — the modes are dead, so the keys that pinned them must stay rejected.
+// ========================================
+//
+// `ModuleParams` is exactly id/providers/on* now. The old mode flags (`root`, `factory`) and the
+// never-a-param `container` must all be absent, and these directives are the regression guard: if any
+// key becomes assignable again, TypeScript reports its directive as unused and the file stops compiling.
 
-// One container = one module: `container` is not a module parameter in any mode, so a module can never
-// be pointed at somebody else's container. These directives are the regression guard — if the key ever
-// becomes assignable again, TypeScript reports each one as unused and this file stops compiling.
+type _ModuleParamsHasNoRoot = Expect<Not<HasKey<ModuleParams, "root">>>
+type _ModuleParamsHasNoFactory = Expect<Not<HasKey<ModuleParams, "factory">>>
+type _ModuleParamsHasNoContainer = Expect<Not<HasKey<ModuleParams, "container">>>
 
-// @ts-expect-error `container` is not a module parameter.
-const containerParams: ModuleResolutionParams = { container: new Container() }
-void containerParams
+// @ts-expect-error `root` is not a module parameter — the composition root is created imperatively via new App().
+const rootModuleParams: ModuleParams = { root: true, providers: [ApiClient] }
+void rootModuleParams
 
-// Not merely an excess-property error on a fresh literal: it must fail for an object that already
-// partially matches the (otherwise weak) scoped params type too.
-// @ts-expect-error `container` is not a module parameter, and a known key alongside it does not help.
-const containerWithKnownKey: ModuleResolutionParams = { id: "x", container: new Container() }
+// @ts-expect-error `factory` is not a module parameter — factory mode is gone.
+const factoryModuleParams: ModuleParams = { factory: () => new Container(), providers: [ApiClient] }
+void factoryModuleParams
+
+// @ts-expect-error `container` is not a module parameter — one container = one module.
+const containerModuleParams: ModuleParams = { container: new Container() }
+void containerModuleParams
+
+// Not merely an excess-property error on a fresh literal: it must fail alongside a known key too.
+// @ts-expect-error `container` is not a module parameter, and a known key beside it does not help.
+const containerWithKnownKey: ModuleParams = { id: "x", container: new Container() }
 void containerWithKnownKey
 
-// @ts-expect-error a scoped module has no `container` either.
-const scopedWithContainer: ScopedModuleParams = { container: new Container() }
-void scopedWithContainer
-
-// @ts-expect-error root and factory modes are mutually exclusive.
-const rootWithFactory: RootModuleParams = { root: true, factory: () => new Container() }
-void rootWithFactory
+// The context value is the module instance plus its rebuild — no loose `container` / `id` fields.
+type _ModuleContextValueShape = Expect<Equals<ModuleContextValue, { module: Module; rebuild: () => void }>>
 
 // Nameability of inferred types — TS2742
 // ========================================
@@ -598,8 +611,8 @@ void rootWithFactory
 // Wrapping one of our hooks in an EXPORTED hook of its own is the ordinary consumer pattern, and it
 // forces TypeScript to write our inferred type into the consumer's declaration output. If that type
 // lives in a `dist` file the `exports` map does not publish, TypeScript cannot name it portably and
-// reports TS2742 — which is what `usePropsRef`, `useModuleContext`, `useModule` and `makeTokenizer` all
-// did until `UsePropsRefResult`, `ModuleContextValue` and `Tokenizer` were exported from `./types`.
+// reports TS2742 — which is what `usePropsRef`, `useModuleContext` and `makeTokenizer` all did until
+// `UsePropsRefResult`, `ModuleContextValue` and `Tokenizer` were exported from `./types`.
 //
 // These wrappers are therefore UNANNOTATED on purpose: each one only compiles because the inferred type
 // is nameable through the published surface. Un-exporting any of those types fails right here, e.g.
@@ -625,17 +638,12 @@ export function useOwnContainer() {
 export const consumerToken = makeTokenizer("@consumer")
 
 export type ModuleContextShape = {
-    container: Container
-    id: string
+    module: Module
     rebuild: () => void
 }
 
 export function useAppModuleContext(): ModuleContextShape {
     return useModuleContext()
-}
-
-export function useAppModule(): ModuleContextShape {
-    return useModule(scopedParams)
 }
 
 export const scopedTokenizer: Tokenizer = makeTokenizer("@consumer.scoped")
@@ -644,7 +652,7 @@ export const scopedTokenizer: Tokenizer = makeTokenizer("@consumer.scoped")
 // ========================================
 
 function UserPanel(props: UserProps): ReactElement {
-    // The manual bridge — the same inference `createModule` performs internally.
+    // The manual bridge — the same inference `createModuleComponent` performs internally.
     const { ref, provider } = usePropsRef(props)
 
     type _PropsRefIsTyped = Expect<Equals<typeof ref, PropsRef<UserProps>>>
@@ -718,9 +726,11 @@ function UserView(): ReactElement {
 
     const moduleContext = useModuleContext()
     type _UseModuleContext = Expect<Equals<typeof moduleContext, ModuleContextValue>>
-    type _ModuleContextShape = Expect<
-        Equals<ModuleContextValue, { container: Container; id: string; rebuild: () => void }>
-    >
+    type _ModuleContextShape = Expect<Equals<ModuleContextValue, { module: Module; rebuild: () => void }>>
+
+    // The module instance is the context value now — id lives on it, not beside it.
+    const ownModule = moduleContext.module
+    type _ContextModuleIsModule = Expect<Equals<typeof ownModule, Module>>
 
     // @ts-expect-error resolution is typed by the token — `nope` does not exist on UserStore.
     void store.nope
@@ -733,7 +743,7 @@ function UserView(): ReactElement {
             {maybeStore ? "y" : "n"}
             {firstPlugin?.name ?? ""}
             {registries.length}
-            {moduleContext.id}
+            {ownModule.id}
             {String(container.isRegistered(UserStore))}
         </button>
     )
@@ -763,22 +773,39 @@ function RebuildingModule({ children }: { children?: ReactNode }): ReactElement 
     )
 }
 
-// The low-level hook behind `ModuleProvider`, exported for advanced consumers.
+// The boundary hook is internal now; a consumer reaches its enclosing module straight off context.
 function ManualModule({ children }: { children?: ReactNode }): ReactElement {
-    const module = useModule(scopedParams)
-    type _UseModuleResult = Expect<Equals<typeof module, { container: Container; id: string; rebuild: () => void }>>
+    const { module, rebuild } = useModuleContext()
+    type _ContextModule = Expect<Equals<typeof module, Module>>
+    type _ContextRebuild = Expect<Equals<typeof rebuild, () => void>>
+    void rebuild
 
     return <div data-module={module.id}>{children}</div>
 }
 
-// ModuleProvider — root, scoped and factory modes.
+// Root boundary — created imperatively, outside the tree, then handed to <AppProvider>.
 // ========================================
 
-export function App(): ReactElement {
+const composedApp = new App({ id: "app-root", providers: moduleProviders, onModuleInit: moduleHook })
+type _CreateAppReturnsApp = Expect<Equals<typeof composedApp, App>>
+type _CreateAppIsNotAny = Expect<Not<IsAny<typeof composedApp>>>
+
+// An App IS a Module — that subtype relationship is what the whole tree gates on.
+const appAsModule: Module = composedApp
+void appAsModule
+
+// ...but a bare Module is NOT an App. The App subclass carries a private brand, so it is nominal: the
+// substrate cannot masquerade as the composition root, and <AppProvider> cannot be handed a scoped module.
+declare const someBareModule: Module
+// @ts-expect-error a bare Module is not assignable to App — App is nominal.
+const moduleAsApp: App = someBareModule
+void moduleAsApp
+
+export function AppTree(): ReactElement {
     return (
-        // root mode: a fresh container detached from any ancestor.
-        <ModuleProvider root id="app-root" providers={moduleProviders} onModuleInit={moduleHook}>
-            {/* scoped mode (the default): a fresh child container under the enclosing module. */}
+        // The composition root: <AppProvider> inits (if needed), mounts and unmounts the owner-created App.
+        <AppProvider app={composedApp}>
+            {/* scoped (the only) mode: a fresh child container under the enclosing module. */}
             <ModuleProvider providers={[classProvider, existingProvider]} rebuildOn={["tenant-a"]}>
                 <UserModule userId="u-1" limit={25}>
                     <UserPanel userId="u-1" limit={25} />
@@ -797,17 +824,64 @@ export function App(): ReactElement {
                     </RebuildingModule>
                 </BareModule>
             </ModuleProvider>
-
-            {/* factory mode: the module adopts and owns the container the factory builds. */}
-            <ModuleProvider factory={() => new Container()} providers={[ApiClient]}>
-                <UserView />
-            </ModuleProvider>
-        </ModuleProvider>
+        </AppProvider>
     )
 }
 
-// `container` is not a prop. The trap this guards against: TypeScript's excess-property check against a
-// union accepts any key present in ANY member, so the key has to be absent-or-`never` in ALL of them.
+// Module & App classes — construction and lifecycle signatures.
+// ========================================
+
+// The Module constructor takes `(parent, params)`; the parent is a Module or null, never optional.
+const childModule = new Module(composedApp, { providers: [ApiClient] })
+type _NewModuleIsModule = Expect<Equals<typeof childModule, Module>>
+const childParent = childModule.parent
+type _ModuleParentAccessor = Expect<Equals<typeof childParent, Module | null>>
+
+const detachedModule = new Module(null, { id: "detached" })
+void detachedModule
+
+// @ts-expect-error the Module constructor requires the parent argument (Module | null).
+const parentlessModule = new Module()
+void parentlessModule
+
+// @ts-expect-error a Container is not a Module — the parent slot takes a module or null.
+const wrongParentModule = new Module(new Container())
+void wrongParentModule
+
+// `App` / `new App(...)` take params only — the root has no parent slot; the subclass pins it to null.
+const explicitApp = new App({ id: "app-2" })
+type _NewAppIsApp = Expect<Equals<typeof explicitApp, App>>
+void explicitApp
+
+// @ts-expect-error App's constructor takes only params — there is no parent argument on the root.
+const appWithParent = new App(composedApp, { id: "nope" })
+void appWithParent
+
+// Lifecycle phase signatures: init/mount/unmount are sync void, destroy is async.
+const initResult: void = composedApp.init()
+void initResult
+const mountResult: void = composedApp.mount()
+void mountResult
+const unmountResult: void = composedApp.unmount()
+void unmountResult
+const destroyResult = composedApp.destroy()
+type _DestroyReturnsPromise = Expect<Equals<typeof destroyResult, Promise<void>>>
+void destroyResult
+
+const isInitialized = composedApp.initialized
+type _InitializedIsBoolean = Expect<Equals<typeof isInitialized, boolean>>
+void isInitialized
+
+const isMounted = composedApp.mounted
+type _MountedIsBoolean = Expect<Equals<typeof isMounted, boolean>>
+void isMounted
+
+// ModuleProvider / AppProvider props — negative space.
+// ========================================
+//
+// ModuleProvider is scoped-only: `container`, `root` and `factory` are all rejected. The trap this
+// guards against: TypeScript's excess-property check against a union accepts any key present in ANY
+// member, so a removed key has to be absent from the props type entirely.
 
 const externalContainer: Container = new Container()
 
@@ -819,13 +893,32 @@ void containerElement
 const containerWithProvidersElement = <ModuleProvider container={externalContainer} providers={[ApiClient]} />
 void containerWithProvidersElement
 
-// @ts-expect-error not a prop in root mode either.
-const rootContainerElement = <ModuleProvider root container={externalContainer} />
-void rootContainerElement
-
 // @ts-expect-error the JSX spread path must reject it too.
 const spreadContainerElement = <ModuleProvider {...{ container: externalContainer }} />
 void spreadContainerElement
+
+// @ts-expect-error `root` is gone — the composition root is created via new App() + <AppProvider>, not a prop.
+const rootPropElement = <ModuleProvider root providers={[ApiClient]} />
+void rootPropElement
+
+// @ts-expect-error `factory` is gone with factory mode.
+const factoryPropElement = <ModuleProvider factory={() => new Container()} providers={[ApiClient]} />
+void factoryPropElement
+
+// AppProvider's props are exactly `{ app, children? }`.
+type _AppProviderPropsShape = Expect<Equals<AppProviderProps, { app: App; children?: ReactNode }>>
+
+// @ts-expect-error AppProvider's `app` must be an App — an arbitrary object is not one.
+const badAppProvider = <AppProvider app={{}} />
+void badAppProvider
+
+// @ts-expect-error a bare Module is not an App — AppProvider only accepts the nominal composition root.
+const bareModuleAppProvider = <AppProvider app={someBareModule} />
+void bareModuleAppProvider
+
+// @ts-expect-error AppProvider requires an `app`.
+const emptyAppProvider = <AppProvider />
+void emptyAppProvider
 
 // Container — the same resolution semantics outside React.
 // ========================================
@@ -875,9 +968,6 @@ export function inspect(container: Container): string {
     ].join("|")
 }
 
-// `ModuleMetadata` is constructible by a consumer building a container by hand.
-const metadataInit: ModuleMetadataInit = { id: "manual", container: new Container(), parent: null }
-
 // A container is constructed, never forked off a package-level singleton.
 
 // @ts-expect-error there is no global container and no `createChildContainer` on the class.
@@ -902,9 +992,11 @@ const publicValueSurface = [
     LazyToken,
     Optional,
     decorate,
+    App,
+    Module,
+    AppProvider,
     ModuleProvider,
-    createModule,
-    useModule,
+    createModuleComponent,
     useContainer,
     useModuleContext,
     useModuleRebuild,
@@ -912,14 +1004,15 @@ const publicValueSurface = [
     useResolveSafe,
     useResolveAll,
     usePropsRef,
-    ModuleMetadata,
     ModuleRegistry,
     Resolver,
     PropsRef,
     Token,
     makeTokenizer,
 ] as const
-type _PublicValueSurfaceSize = Expect<Equals<typeof publicValueSurface.length, 24>>
+// 24 -> 25 on the 0.5.0 rework: `ModuleMetadata` and public `useModule` left with the modes; `App`,
+// `Module` and `AppProvider` arrived with the App/Module classes.
+type _PublicValueSurfaceSize = Expect<Equals<typeof publicValueSurface.length, 25>>
 
 // The `./types` subpath must carry the entire public type surface. Every exported name is referenced
 // once.
@@ -934,33 +1027,28 @@ type PublicTypeSurface = [
     OptionalFactoryDependency<AppConfig>,
     Provider,
     ValueProvider<AppConfig>,
-    FactoryModuleParams,
-    ModuleResolution,
-    ModuleResolutionParams,
-    RootModuleParams,
-    ScopedModuleParams,
+    ModuleParams,
     ModuleErrorHook,
     ModuleHook,
     ModuleHooks,
     ModulePhase,
     ProviderLifecycle,
-    ModuleMetadataInit,
-    ModuleMetadataProvider,
     PropsAdapter<UserProps, UserVM>,
     ModuleContextValue,
     ModuleProviderProps,
-    CreateModuleOptions<UserProps, UserVM>,
-    CreateModuleParams<UserProps>,
+    AppProviderProps,
+    CreateModuleComponentOptions<UserProps, UserVM>,
+    CreateModuleComponentParams<UserProps>,
     UsePropsRefOptions<UserProps, UserVM>,
     UsePropsRefResult<UserVM>,
     TokenOptions,
     Tokenizer,
 ]
-// 32 -> 31 on the move to Inversify: `DependencyContainer`, `RegistrationOptions`, `Frequency`,
-// `Disposable`, `CleanupFn` and `ProviderScope` left with tsyringe; `AbstractConstructor`,
-// `ModuleErrorHook`, `ModulePhase`, `ModuleMetadataInit` and `ModuleMetadataProvider` arrived with the
-// container we now own.
-type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 31>>
+// 31 -> 26 on the 0.5.0 rework: `FactoryModuleParams`, `ModuleResolution`, `ModuleResolutionParams`,
+// `RootModuleParams` and `ScopedModuleParams` left with the modes, and `ModuleMetadataInit` /
+// `ModuleMetadataProvider` with the ModuleMetadata concept; `ModuleParams` and `AppProviderProps`
+// arrived with the App/Module classes.
+type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 26>>
 
 // Keep the module-scope constants that exist only to be typechecked from being flagged as dead by a
 // future `noUnusedLocals`, and give the file a single exported value to hang everything on.
@@ -969,12 +1057,9 @@ export const consumerSurface = {
     createOptions,
     createParams,
     factoryDependencies,
-    factoryParams,
-    metadataInit,
     moduleHooks,
+    moduleParams,
     providerProps,
-    resolutionParams,
-    scopedParams,
     transientProvider,
     valueSurfaceSize: publicValueSurface.length,
     DUPLICATE_PLUGIN,

@@ -1,38 +1,34 @@
 import { describe, expect, it } from "vitest"
 
-import type { Container } from "../../src/container/index.js"
-import { createModuleResolution } from "../../src/core/module/resolution.js"
-import { ModuleLifecycle } from "../../src/core/providers/module-lifecycle/module-lifecycle.provider.js"
-import { tracked } from "../setup/helpers.js"
+import { App } from "../../src/core/module/module.js"
+import { makeApp, makeChild, tracked } from "../setup/helpers.js"
 
 // Idempotence.
 // ========================================
 //
-// React re-sends signals; the orchestrator collapses them. Every hook runs exactly once per instance,
+// React re-sends signals; the module collapses them. Every hook runs exactly once per instance,
 // whether the repeats are sequential or concurrent.
-
-const lifecycleOf = (container: Container): ModuleLifecycle => container.resolve(ModuleLifecycle)
 
 describe("repeated signals", () => {
     it("collapses repeats of every phase into one of each", async () => {
         const log: string[] = []
         const service = tracked(log, "A")
         const childService = tracked(log, "C")
-        const parent = createModuleResolution(null, { root: true, providers: [service] })
-        const child = createModuleResolution(parent.container, { providers: [childService] })
+        const parent = makeApp({ providers: [service] })
+        const child = makeChild(parent, { providers: [childService] })
 
-        lifecycleOf(parent.container).mount()
-        lifecycleOf(parent.container).mount()
-        lifecycleOf(child.container).mount()
-        lifecycleOf(child.container).mount()
+        parent.mount()
+        parent.mount()
+        child.mount()
+        child.mount()
 
-        lifecycleOf(parent.container).unmount()
-        lifecycleOf(parent.container).unmount()
-        lifecycleOf(child.container).unmount()
+        parent.unmount()
+        parent.unmount()
+        child.unmount()
 
-        await lifecycleOf(parent.container).destroy()
-        await lifecycleOf(child.container).destroy()
-        await lifecycleOf(parent.container).destroy()
+        await parent.destroy()
+        await child.destroy()
+        await parent.destroy()
 
         expect(service.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 1 })
         expect(childService.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 1 })
@@ -41,23 +37,23 @@ describe("repeated signals", () => {
     it("ignores a second init", () => {
         const log: string[] = []
         const service = tracked(log, "A")
-        const module = createModuleResolution(null, { root: true, providers: [service] })
+        const module = new App({ providers: [service], onModuleInit: () => log.push("module:init") })
 
-        lifecycleOf(module.container).init()
-        lifecycleOf(module.container).init({ onModuleInit: () => log.push("module:init") })
+        module.init()
+        module.init()
 
         expect(service.counts.init).toBe(1)
-        expect(log).toEqual(["A:ctor", "A:init"])
+        expect(log).toEqual(["A:ctor", "module:init", "A:init"])
     })
 
     it("does not remount after an unmount — the module is spent", () => {
         const log: string[] = []
         const service = tracked(log, "A")
-        const module = createModuleResolution(null, { root: true, providers: [service] })
+        const module = makeApp({ providers: [service] })
 
-        lifecycleOf(module.container).mount()
-        lifecycleOf(module.container).unmount()
-        lifecycleOf(module.container).mount()
+        module.mount()
+        module.unmount()
+        module.mount()
 
         expect(service.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 0 })
     })
@@ -65,15 +61,15 @@ describe("repeated signals", () => {
     it("ignores mount and unmount after destroy", async () => {
         const log: string[] = []
         const service = tracked(log, "A")
-        const module = createModuleResolution(null, { root: true, providers: [service] })
-        lifecycleOf(module.container).mount()
-        lifecycleOf(module.container).unmount()
-        await lifecycleOf(module.container).destroy()
+        const module = makeApp({ providers: [service] })
+        module.mount()
+        module.unmount()
+        await module.destroy()
         log.length = 0
 
-        lifecycleOf(module.container).mount()
-        lifecycleOf(module.container).unmount()
-        await lifecycleOf(module.container).destroy()
+        module.mount()
+        module.unmount()
+        await module.destroy()
 
         expect(log).toEqual([])
         expect(service.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 1 })
@@ -82,11 +78,11 @@ describe("repeated signals", () => {
     it("skips the unmount phase entirely when destroy comes first", async () => {
         const log: string[] = []
         const service = tracked(log, "A")
-        const module = createModuleResolution(null, { root: true, providers: [service] })
-        lifecycleOf(module.container).mount()
+        const module = makeApp({ providers: [service] })
+        module.mount()
 
-        await lifecycleOf(module.container).destroy()
-        lifecycleOf(module.container).unmount()
+        await module.destroy()
+        module.unmount()
 
         expect(service.counts).toEqual({ init: 1, mount: 1, unmount: 0, destroy: 1 })
     })
@@ -96,16 +92,12 @@ describe("concurrent signals", () => {
     it("collapses three overlapping destroy calls", async () => {
         const log: string[] = []
         const service = tracked(log, "A", { destroyDelay: 10 })
-        const module = createModuleResolution(null, { root: true, providers: [service] })
-        lifecycleOf(module.container).mount()
-        lifecycleOf(module.container).unmount()
+        const module = makeApp({ providers: [service] })
+        module.mount()
+        module.unmount()
         log.length = 0
 
-        await Promise.all([
-            lifecycleOf(module.container).destroy(),
-            lifecycleOf(module.container).destroy(),
-            lifecycleOf(module.container).destroy(),
-        ])
+        await Promise.all([module.destroy(), module.destroy(), module.destroy()])
 
         expect(service.counts.destroy).toBe(1)
         expect(log).toEqual(["A:destroy"])
@@ -114,14 +106,14 @@ describe("concurrent signals", () => {
     it("collapses a second destroy issued while the first is still suspended", async () => {
         const log: string[] = []
         const service = tracked(log, "A", { destroyDelay: 20 })
-        const module = createModuleResolution(null, { root: true, providers: [service] })
-        lifecycleOf(module.container).mount()
-        lifecycleOf(module.container).unmount()
+        const module = makeApp({ providers: [service] })
+        module.mount()
+        module.unmount()
         log.length = 0
 
-        const inFlight = lifecycleOf(module.container).destroy()
+        const inFlight = module.destroy()
         await new Promise((resolve) => setTimeout(resolve, 5))
-        await lifecycleOf(module.container).destroy()
+        await module.destroy()
         expect(log).toEqual([])
 
         await inFlight
@@ -133,14 +125,14 @@ describe("concurrent signals", () => {
         const log: string[] = []
         const parentService = tracked(log, "P")
         const childService = tracked(log, "C")
-        const parent = createModuleResolution(null, { root: true, providers: [parentService] })
-        const child = createModuleResolution(parent.container, { providers: [childService] })
-        lifecycleOf(child.container).mount()
-        lifecycleOf(parent.container).mount()
-        lifecycleOf(parent.container).unmount()
+        const parent = makeApp({ providers: [parentService] })
+        const child = makeChild(parent, { providers: [childService] })
+        child.mount()
+        parent.mount()
+        parent.unmount()
         log.length = 0
 
-        await Promise.all([lifecycleOf(parent.container).destroy(), lifecycleOf(child.container).destroy()])
+        await Promise.all([parent.destroy(), child.destroy()])
 
         expect(log).toEqual(["C:destroy", "P:destroy"])
         expect(parentService.counts.destroy).toBe(1)
@@ -151,14 +143,14 @@ describe("concurrent signals", () => {
         const log: string[] = []
         const parentService = tracked(log, "P")
         const childService = tracked(log, "C")
-        const parent = createModuleResolution(null, { root: true, providers: [parentService] })
-        const child = createModuleResolution(parent.container, { providers: [childService] })
-        lifecycleOf(child.container).mount()
-        lifecycleOf(parent.container).mount()
-        lifecycleOf(parent.container).unmount()
+        const parent = makeApp({ providers: [parentService] })
+        const child = makeChild(parent, { providers: [childService] })
+        child.mount()
+        parent.mount()
+        parent.unmount()
         log.length = 0
 
-        await Promise.all([lifecycleOf(child.container).destroy(), lifecycleOf(parent.container).destroy()])
+        await Promise.all([child.destroy(), parent.destroy()])
 
         expect(parentService.counts.destroy).toBe(1)
         expect(childService.counts.destroy).toBe(1)
@@ -169,15 +161,15 @@ describe("concurrent signals", () => {
         const log: string[] = []
         const parentService = tracked(log, "P")
         const childService = tracked(log, "C")
-        const parent = createModuleResolution(null, { root: true, providers: [parentService] })
-        const child = createModuleResolution(parent.container, { providers: [childService] })
-        lifecycleOf(child.container).mount()
-        lifecycleOf(parent.container).mount()
+        const parent = makeApp({ providers: [parentService] })
+        const child = makeChild(parent, { providers: [childService] })
+        child.mount()
+        parent.mount()
         log.length = 0
 
-        lifecycleOf(child.container).unmount()
-        lifecycleOf(parent.container).unmount()
-        lifecycleOf(child.container).unmount()
+        child.unmount()
+        parent.unmount()
+        child.unmount()
 
         expect(log).toEqual(["C:unmount", "P:unmount"])
         expect(parentService.counts.unmount).toBe(1)

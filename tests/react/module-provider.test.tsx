@@ -3,15 +3,20 @@ import { describe, expect, it, vi } from "vitest"
 import { useState, type ReactNode } from "react"
 
 import { Container } from "../../src/container/index.js"
-import { ModuleMetadata } from "../../src/core/providers/module-metadata/module-metadata.provider.js"
-import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"
+import { App, Module } from "../../src/core/module/module.js"
+import { AppProvider } from "../../src/react/providers/AppProvider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
-import { useModule } from "../../src/react/hooks/useModule.js"
-import { useModuleContext } from "../../src/react/hooks/useModuleContext.js"
+import { useContainer, useModuleContext } from "../../src/react/hooks/useModuleContext.js"
 import type { ModuleContextValue } from "../../src/react/context/ModuleContext.js"
+import { Root } from "../setup/react.js"
+import { flush, tracked } from "../setup/helpers.js"
 
-// ModuleProvider + useModule
+// AppProvider + ModuleProvider
 // ========================================
+//
+// The React root is `<AppProvider app={new App(...)}>`: it inits the app before children render, mounts it
+// on effect and unmounts it on cleanup — but never destroys, because the app is owned outside the tree.
+// Every `<ModuleProvider>` is scoped: it forks the module in context and requires one to be there.
 
 const SHARED = Symbol.for("tests.provider.shared")
 const ROOT_ONLY = Symbol.for("tests.provider.root-only")
@@ -21,28 +26,136 @@ function silenceReactErrorLog(): () => void {
     return () => spy.mockRestore()
 }
 
-describe("ModuleProvider — context value", () => {
-    it("publishes exactly { container, id, rebuild }", () => {
-        let value: ModuleContextValue | null = null
+describe("AppProvider", () => {
+    it("inits an un-initialized app before children render", () => {
+        const app = new App({ providers: [{ provide: ROOT_ONLY, useValue: "root-only" }] })
+        expect(app.initialized).toBe(false)
 
+        let resolved: string | null = null
         function Probe(): ReactNode {
-            value = useModuleContext()
+            // A scoped child throws at construction if its parent is not initialized, so rendering at all
+            // proves the app was inited first.
+            resolved = useContainer().resolve<string>(ROOT_ONLY)
             return null
         }
 
         render(
-            <ModuleProvider root id="shape">
-                <Probe />
-            </ModuleProvider>
+            <AppProvider app={app}>
+                <ModuleProvider>
+                    <Probe />
+                </ModuleProvider>
+            </AppProvider>
         )
 
-        expect(Object.keys(value!).sort()).toEqual(["container", "id", "rebuild"])
-        expect(value!.container).toBeInstanceOf(Container)
-        expect(value!.id).toBe("shape")
-        expect(typeof value!.rebuild).toBe("function")
+        expect(app.initialized).toBe(true)
+        expect(resolved).toBe("root-only")
     })
 
-    it("hands out the module's own container", () => {
+    it("mounts on effect and unmounts on cleanup", () => {
+        const log: string[] = []
+        const Service = tracked(log, "A")
+        const app = new App({ providers: [Service] })
+
+        const { unmount } = render(<AppProvider app={app}><div /></AppProvider>)
+
+        expect(app.mounted).toBe(true)
+        expect(Service.counts).toMatchObject({ init: 1, mount: 1, unmount: 0 })
+
+        unmount()
+        expect(app.mounted).toBe(false)
+        expect(Service.counts).toMatchObject({ unmount: 1 })
+    })
+
+    it("never destroys — the owner keeps that responsibility", async () => {
+        const log: string[] = []
+        const Service = tracked(log, "A")
+        const app = new App({ providers: [Service] })
+
+        const { unmount } = render(<AppProvider app={app}><div /></AppProvider>)
+        unmount()
+        await flush()
+
+        // Unmounted, but not destroyed: destroy hook never fired and the app is still initialized.
+        expect(Service.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 0 })
+        expect(app.initialized).toBe(true)
+    })
+
+    it("does not re-init an app the owner already initialized", () => {
+        const log: string[] = []
+        const Service = tracked(log, "A")
+        const app = new App({ providers: [Service] })
+        app.init()
+
+        render(<AppProvider app={app}><div /></AppProvider>)
+
+        expect(Service.counts).toMatchObject({ init: 1, mount: 1 })
+    })
+
+    it("publishes { module, rebuild } with the app as the module", () => {
+        const app = new App({ id: "the-app" })
+        let value: ModuleContextValue | null = null
+
+        function Probe(): ReactNode {
+            value = useModuleContext()
+            return null
+        }
+
+        render(<AppProvider app={app}><Probe /></AppProvider>)
+
+        expect(Object.keys(value!).sort()).toEqual(["module", "rebuild"])
+        expect(value!.module).toBe(app)
+        expect(value!.module).toBeInstanceOf(App)
+        expect(value!.module.id).toBe("the-app")
+        expect(typeof value!.rebuild).toBe("function")
+    })
+})
+
+describe("parallel apps", () => {
+    it("keeps two sibling AppProviders in independent containers and lifecycles", async () => {
+        const log: string[] = []
+        const first = new App({ providers: [tracked(log, "First"), { provide: SHARED, useValue: "first" }] })
+        const second = new App({ providers: [tracked(log, "Second"), { provide: SHARED, useValue: "second" }] })
+
+        const seen: string[] = []
+        function Probe(): ReactNode {
+            seen.push(useContainer().resolve<string>(SHARED))
+            return null
+        }
+
+        const { unmount } = render(
+            <>
+                <AppProvider app={first}><Probe /></AppProvider>
+                <AppProvider app={second}><Probe /></AppProvider>
+            </>
+        )
+
+        // Separate containers, no cross-talk: each subtree reads its own app's binding.
+        expect(first.container).not.toBe(second.container)
+        expect(seen).toEqual(["first", "second"])
+        expect(first.container.isRegistered(SHARED, false)).toBe(true)
+        expect(second.container.resolve(SHARED)).toBe("second")
+
+        // Independent lifecycles: unmounting the whole tree unmounts both, neither destroys.
+        unmount()
+        await flush()
+
+        expect(log.filter((e) => e.startsWith("First"))).toEqual([
+            "First:ctor",
+            "First:init",
+            "First:mount",
+            "First:unmount",
+        ])
+        expect(log.filter((e) => e.startsWith("Second"))).toEqual([
+            "Second:ctor",
+            "Second:init",
+            "Second:mount",
+            "Second:unmount",
+        ])
+    })
+})
+
+describe("ModuleProvider — context value", () => {
+    it("publishes exactly { module, rebuild }", () => {
         let value: ModuleContextValue | null = null
 
         function Probe(): ReactNode {
@@ -51,27 +164,34 @@ describe("ModuleProvider — context value", () => {
         }
 
         render(
-            <ModuleProvider root id="own">
-                <Probe />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider id="shape">
+                    <Probe />
+                </ModuleProvider>
+            </Root>
         )
 
-        expect(value!.container.resolve(ModuleMetadata).container).toBe(value!.container)
-        expect(value!.container.resolve(ModuleMetadata).id).toBe("own")
+        expect(Object.keys(value!).sort()).toEqual(["module", "rebuild"])
+        expect(value!.module).toBeInstanceOf(Module)
+        expect(value!.module.id).toBe("shape")
+        expect(value!.module.container).toBeInstanceOf(Container)
+        expect(typeof value!.rebuild).toBe("function")
     })
 
     it("generates an id when none is given", () => {
         let id = ""
 
         function Probe(): ReactNode {
-            id = useModuleContext().id
+            id = useModuleContext().module.id
             return null
         }
 
         render(
-            <ModuleProvider root>
-                <Probe />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider>
+                    <Probe />
+                </ModuleProvider>
+            </Root>
         )
 
         expect(id).toMatch(/^id:\d+$/)
@@ -90,10 +210,12 @@ describe("ModuleProvider — context value", () => {
             const [tick, setTick] = useState(0)
             bump = () => setTick((value) => value + 1)
             return (
-                <ModuleProvider root id="stable">
-                    <Probe />
-                    <span data-testid="tick">{tick}</span>
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider id="stable">
+                        <Probe />
+                        <span data-testid="tick">{tick}</span>
+                    </ModuleProvider>
+                </Root>
             )
         }
 
@@ -107,16 +229,18 @@ describe("ModuleProvider — context value", () => {
 
     it("renders its children", () => {
         const { container } = render(
-            <ModuleProvider root>
-                <span data-testid="child">hello</span>
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider>
+                    <span data-testid="child">hello</span>
+                </ModuleProvider>
+            </Root>
         )
 
         expect(container.textContent).toBe("hello")
     })
 
     it("accepts no children at all", () => {
-        expect(() => render(<ModuleProvider root />)).not.toThrow()
+        expect(() => render(<Root><ModuleProvider /></Root>)).not.toThrow()
     })
 })
 
@@ -126,21 +250,21 @@ describe("ModuleProvider — nesting", () => {
         let child: Container | null = null
 
         function Parent(): ReactNode {
-            parent = useModuleContext().container
+            parent = useContainer()
             return null
         }
         function Child(): ReactNode {
-            child = useModuleContext().container
+            child = useContainer()
             return null
         }
 
         render(
-            <ModuleProvider root providers={[{ provide: ROOT_ONLY, useValue: "root-only" }]}>
+            <Root providers={[{ provide: ROOT_ONLY, useValue: "root-only" }]}>
                 <Parent />
                 <ModuleProvider providers={[{ provide: SHARED, useValue: "child" }]}>
                     <Child />
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
 
         expect(child).not.toBe(parent)
@@ -149,16 +273,16 @@ describe("ModuleProvider — nesting", () => {
         expect(parent!.isRegistered(SHARED)).toBe(false)
     })
 
-    it("resolves the nearest override across root, child and grandchild", () => {
+    it("resolves the nearest override across app, child and grandchild", () => {
         const seen: string[] = []
 
         function Probe(): ReactNode {
-            seen.push(useModuleContext().container.resolve<string>(SHARED))
+            seen.push(useContainer().resolve<string>(SHARED))
             return null
         }
 
         render(
-            <ModuleProvider root providers={[{ provide: SHARED, useValue: "root" }]}>
+            <Root providers={[{ provide: SHARED, useValue: "app" }]}>
                 <Probe />
                 <ModuleProvider providers={[{ provide: SHARED, useValue: "child" }]}>
                     <Probe />
@@ -166,66 +290,48 @@ describe("ModuleProvider — nesting", () => {
                         <Probe />
                     </ModuleProvider>
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
 
-        expect(seen).toEqual(["root", "child", "grandchild"])
+        expect(seen).toEqual(["app", "child", "grandchild"])
     })
 
-    it("links the module tree through the registry as it mounts", () => {
-        let root: Container | null = null
-        let child: Container | null = null
-        let grandchild: Container | null = null
+    it("links the module tree so ancestors reach descendants and back", () => {
+        let app: Module | null = null
+        let child: Module | null = null
+        let grandchild: Module | null = null
 
-        const capture = (assign: (container: Container) => void) =>
+        const capture = (assign: (module: Module) => void) =>
             function Probe(): ReactNode {
-                assign(useModuleContext().container)
+                assign(useModuleContext().module)
                 return null
             }
 
-        const Root = capture((container) => (root = container))
-        const Child = capture((container) => (child = container))
-        const Grandchild = capture((container) => (grandchild = container))
+        const AppProbe = capture((module) => (app = module))
+        const Child = capture((module) => (child = module))
+        const Grandchild = capture((module) => (grandchild = module))
 
         render(
-            <ModuleProvider root id="root">
-                <Root />
+            <Root id="app">
+                <AppProbe />
                 <ModuleProvider id="child">
                     <Child />
                     <ModuleProvider id="grandchild">
                         <Grandchild />
                     </ModuleProvider>
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
 
-        expect(root!.resolve(ModuleRegistry).descendants()).toEqual([child, grandchild])
-        expect(grandchild!.resolve(ModuleRegistry).ancestors()).toEqual([child, root])
-        expect(grandchild!.resolve(ModuleRegistry).findRoot()).toBe(root)
+        expect(child!.parent).toBe(app)
+        expect(grandchild!.parent).toBe(child)
+        expect([...app!.children]).toContain(child)
+        expect([...child!.children]).toContain(grandchild)
     })
 })
 
-describe("ModuleProvider — a parent that is not a module", () => {
-    it("builds a root module with no module in context", () => {
-        let value: ModuleContextValue | null = null
-
-        function Probe(): ReactNode {
-            value = useModuleContext()
-            return null
-        }
-
-        render(
-            <ModuleProvider root id="top">
-                <Probe />
-            </ModuleProvider>
-        )
-
-        expect(value!.container.resolve(ModuleMetadata).parent).toBeNull()
-        expect(value!.container.resolve(ModuleRegistry).parent()).toBeNull()
-        expect(value!.container.resolve(ModuleRegistry).findRoot()).toBe(value!.container)
-    })
-
-    it("throws for a scoped module with no module in context", () => {
+describe("ModuleProvider — no parent module in context", () => {
+    it("throws when there is no module to fork", () => {
         const restore = silenceReactErrorLog()
 
         expect(() =>
@@ -234,100 +340,8 @@ describe("ModuleProvider — a parent that is not a module", () => {
                     <div />
                 </ModuleProvider>
             )
-        ).toThrowError(new Error("No parent container in context. Provide `root` or `factory` for a root module."))
+        ).toThrowError(/ModuleProvider requires a parent module in context/)
 
         restore()
-    })
-
-    it("keeps a nested root module isolated from the surrounding module's bindings", () => {
-        let outer: Container | null = null
-        let inner: Container | null = null
-
-        function Outer(): ReactNode {
-            outer = useModuleContext().container
-            return null
-        }
-        function Inner(): ReactNode {
-            inner = useModuleContext().container
-            return null
-        }
-
-        render(
-            <ModuleProvider root id="outer" providers={[{ provide: ROOT_ONLY, useValue: "outer" }]}>
-                <Outer />
-                <div>
-                    <ModuleProvider root id="inner">
-                        <Inner />
-                    </ModuleProvider>
-                </div>
-            </ModuleProvider>
-        )
-
-        // Fresh container, so none of the outer bindings reach it...
-        expect(inner!.isRegistered(ROOT_ONLY)).toBe(false)
-        // ...and it heads its own lifecycle tree: the outer module cannot claim or tear it down.
-        expect(inner!.resolve(ModuleRegistry).parent()).toBeNull()
-        expect(inner!.resolve(ModuleRegistry).findRoot()).toBe(inner)
-        expect(outer!.resolve(ModuleRegistry).children()).toEqual([])
-    })
-
-    it("keeps a nested factory module isolated too", () => {
-        let inner: Container | null = null
-
-        function Inner(): ReactNode {
-            inner = useModuleContext().container
-            return null
-        }
-
-        const supplied = new Container()
-        supplied.register({ provide: SHARED, useValue: "supplied" })
-
-        render(
-            <ModuleProvider root providers={[{ provide: ROOT_ONLY, useValue: "outer" }]}>
-                <ModuleProvider factory={() => supplied} id="inner">
-                    <Inner />
-                </ModuleProvider>
-            </ModuleProvider>
-        )
-
-        expect(inner).toBe(supplied)
-        expect(inner!.resolve(SHARED)).toBe("supplied")
-        expect(inner!.isRegistered(ROOT_ONLY)).toBe(false)
-    })
-})
-
-describe("useModule", () => {
-    it("returns the value ModuleProvider publishes", () => {
-        let fromHook: ModuleContextValue | null = null
-
-        function Standalone(): ReactNode {
-            fromHook = useModule({ root: true, id: "hooked" })
-            return null
-        }
-
-        render(<Standalone />)
-
-        expect(Object.keys(fromHook!).sort()).toEqual(["container", "id", "rebuild"])
-        expect(fromHook!.id).toBe("hooked")
-        expect(fromHook!.container).toBeInstanceOf(Container)
-    })
-
-    it("reads the surrounding module as its parent without a ModuleProvider of its own", () => {
-        let scoped: ModuleContextValue | null = null
-
-        function Scoped(): ReactNode {
-            scoped = useModule({ id: "scoped" })
-            return null
-        }
-
-        render(
-            <ModuleProvider root id="outer" providers={[{ provide: ROOT_ONLY, useValue: "outer" }]}>
-                <Scoped />
-            </ModuleProvider>
-        )
-
-        expect(scoped!.id).toBe("scoped")
-        expect(scoped!.container.resolve(ROOT_ONLY)).toBe("outer")
-        expect(scoped!.container.isRegistered(ROOT_ONLY, false)).toBe(false)
     })
 })

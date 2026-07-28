@@ -7,6 +7,7 @@ import { PropsRef, type PropsAdapter } from "../../src/core/providers/props-ref/
 import { usePropsRef } from "../../src/react/hooks/usePropsRef.js"
 import { useResolve, useResolveSafe } from "../../src/react/hooks/useResolve.js"
 import type { InjectionToken } from "../../src/container/index.js"
+import { Root } from "../setup/react.js"
 
 type Data = { label: string; count: number }
 type Boxed = { boxed: Data }
@@ -53,9 +54,9 @@ describe("usePropsRef return shape", () => {
             local = ref
             provide = provider.provide
             return (
-                <ModuleProvider root providers={[provider]}>
+                <Root providers={[provider]}>
                     <Probe />
-                </ModuleProvider>
+                </Root>
             )
         }
 
@@ -79,9 +80,9 @@ describe("usePropsRef return shape", () => {
             const { ref, provider } = usePropsRef<Data>({ label: "a", count: 1 })
             local = ref
             return (
-                <ModuleProvider root providers={[provider]}>
+                <Root providers={[provider]}>
                     <Probe />
-                </ModuleProvider>
+                </Root>
             )
         }
 
@@ -197,9 +198,9 @@ describe("usePropsRef identity", () => {
             const bridge = usePropsRef(data)
             ref = bridge.ref
             return (
-                <ModuleProvider root providers={[bridge.provider]}>
+                <Root providers={[bridge.provider]}>
                     {child}
-                </ModuleProvider>
+                </Root>
             )
         }
 
@@ -257,9 +258,9 @@ describe("usePropsRef with an adapter", () => {
             const { provider } = usePropsRef<Data, Boxed>(data, { adapter, token: TOKEN })
 
             return (
-                <ModuleProvider root providers={[provider]}>
+                <Root providers={[provider]}>
                     <Probe />
-                </ModuleProvider>
+                </Root>
             )
         }
     }
@@ -363,9 +364,9 @@ describe("usePropsRef with an adapter", () => {
             setBoth = setState
             const { provider } = usePropsRef<Data, Boxed>(state.data, { adapter: state.adapter, token: TOKEN })
             return (
-                <ModuleProvider root providers={[provider]}>
+                <Root providers={[provider]}>
                     <CapturingProbe />
-                </ModuleProvider>
+                </Root>
             )
         }
 
@@ -432,9 +433,9 @@ describe("usePropsRef token isolation", () => {
             const { provider: nProvider } = usePropsRef({ n }, { token: OTHER })
 
             return (
-                <ModuleProvider root providers={[labelProvider, nProvider]}>
+                <Root providers={[labelProvider, nProvider]}>
                     <Probe />
-                </ModuleProvider>
+                </Root>
             )
         }
 
@@ -471,10 +472,10 @@ describe("usePropsRef token isolation", () => {
         function Parent() {
             const { provider } = usePropsRef({ who: "parent" })
             return (
-                <ModuleProvider root providers={[provider]}>
+                <Root providers={[provider]}>
                     <Probe id="parent" />
                     <Child />
-                </ModuleProvider>
+                </Root>
             )
         }
 

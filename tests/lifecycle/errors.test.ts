@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import type { Container } from "../../src/container/index.js"
-import { createModuleResolution } from "../../src/core/module/resolution.js"
-import { ModuleLifecycle } from "../../src/core/providers/module-lifecycle/module-lifecycle.provider.js"
 import type { ModulePhase } from "../../src/core/providers/module-lifecycle/module-lifecycle.types.js"
-import { phase, tracked } from "../setup/helpers.js"
+import { makeApp, makeChild, phase, tracked } from "../setup/helpers.js"
 
 // Hook errors.
 // ========================================
@@ -13,8 +10,6 @@ import { phase, tracked } from "../setup/helpers.js"
 // destroy has nobody to reject into and is logged instead. With a handler, all four are handed over and
 // nothing escapes. Either way init is the odd one out: one try wraps the whole phase, because a failure
 // there means a half-built module and the remaining hooks would be running against it.
-
-const lifecycleOf = (container: Container): ModuleLifecycle => container.resolve(ModuleLifecycle)
 
 afterEach(() => {
     vi.restoreAllMocks()
@@ -25,8 +20,7 @@ describe("without onModuleError", () => {
         const log: string[] = []
 
         expect(() =>
-            createModuleResolution(null, {
-                root: true,
+            makeApp({
                 providers: [tracked(log, "A"), tracked(log, "B", { throwOn: "init" })],
             })
         ).toThrow("B init")
@@ -34,36 +28,33 @@ describe("without onModuleError", () => {
 
     it("throws out of mount", () => {
         const log: string[] = []
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [tracked(log, "A"), tracked(log, "B", { throwOn: "mount" })],
         })
 
-        expect(() => lifecycleOf(module.container).mount()).toThrow("B mount")
+        expect(() => module.mount()).toThrow("B mount")
     })
 
     it("throws out of unmount", () => {
         const log: string[] = []
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [tracked(log, "A"), tracked(log, "B", { throwOn: "unmount" })],
         })
-        lifecycleOf(module.container).mount()
+        module.mount()
 
-        expect(() => lifecycleOf(module.container).unmount()).toThrow("B unmount")
+        expect(() => module.unmount()).toThrow("B unmount")
     })
 
     it("logs a destroy error instead of rejecting", async () => {
         const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
         const log: string[] = []
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [tracked(log, "A"), tracked(log, "B", { throwOn: "destroy" })],
         })
-        lifecycleOf(module.container).mount()
-        lifecycleOf(module.container).unmount()
+        module.mount()
+        module.unmount()
 
-        await expect(lifecycleOf(module.container).destroy()).resolves.toBeUndefined()
+        await expect(module.destroy()).resolves.toBeUndefined()
 
         expect(errorSpy).toHaveBeenCalledTimes(1)
         expect(errorSpy.mock.calls[0]?.[0]).toBe("module.destroy")
@@ -75,15 +66,14 @@ describe("without onModuleError", () => {
         const log: string[] = []
         const first = tracked(log, "A")
         const last = tracked(log, "C")
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [first, tracked(log, "B", { throwOn: "destroy" }), last],
         })
-        lifecycleOf(module.container).mount()
-        lifecycleOf(module.container).unmount()
+        module.mount()
+        module.unmount()
         log.length = 0
 
-        await lifecycleOf(module.container).destroy()
+        await module.destroy()
 
         expect(log).toEqual(["C:destroy", "A:destroy"])
         expect([first.counts.destroy, last.counts.destroy]).toEqual([1, 1])
@@ -97,14 +87,13 @@ describe("without onModuleError", () => {
     it("aborts the mount cascade when a parent hook throws", () => {
         const log: string[] = []
         const childService = tracked(log, "C")
-        const parent = createModuleResolution(null, {
-            root: true,
+        const parent = makeApp({
             providers: [tracked(log, "P", { throwOn: "mount" })],
         })
-        const child = createModuleResolution(parent.container, { providers: [childService] })
-        lifecycleOf(child.container).mount()
+        const child = makeChild(parent, { providers: [childService] })
+        child.mount()
 
-        expect(() => lifecycleOf(parent.container).mount()).toThrow("P mount")
+        expect(() => parent.mount()).toThrow("P mount")
         expect(childService.counts.mount).toBe(0)
     })
 })
@@ -118,15 +107,14 @@ describe("with onModuleError", () => {
             const seen: string[] = []
             const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-            const module = createModuleResolution(null, {
-                root: true,
+            const module = makeApp({
                 providers: [tracked(log, "A"), tracked(log, "B", { throwOn: failing }), tracked(log, "C")],
                 onModuleError: (reportedPhase, error) => seen.push(`${reportedPhase}:${(error as Error).message}`),
             })
-            lifecycleOf(module.container).mount()
-            lifecycleOf(module.container).unmount()
+            module.mount()
+            module.unmount()
             // eslint-disable-next-line no-await-in-loop
-            await lifecycleOf(module.container).destroy()
+            await module.destroy()
 
             expect(seen).toEqual([`${failing}:B ${failing}`])
             expect(errorSpy).not.toHaveBeenCalled()
@@ -138,8 +126,7 @@ describe("with onModuleError", () => {
         const log: string[] = []
         const first = tracked(log, "A")
         const last = tracked(log, "C")
-        createModuleResolution(null, {
-            root: true,
+        makeApp({
             providers: [first, tracked(log, "B", { throwOn: "init" }), last],
             onModuleError: () => undefined,
         })
@@ -150,45 +137,42 @@ describe("with onModuleError", () => {
 
     it("carries on through the mount phase", () => {
         const log: string[] = []
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [tracked(log, "A"), tracked(log, "B", { throwOn: "mount" }), tracked(log, "C")],
             onModuleError: () => undefined,
         })
         log.length = 0
 
-        lifecycleOf(module.container).mount()
+        module.mount()
 
         expect(log).toEqual(["A:mount", "C:mount"])
     })
 
     it("carries on through the unmount phase", () => {
         const log: string[] = []
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [tracked(log, "A"), tracked(log, "B", { throwOn: "unmount" }), tracked(log, "C")],
             onModuleError: () => undefined,
         })
-        lifecycleOf(module.container).mount()
+        module.mount()
         log.length = 0
 
-        lifecycleOf(module.container).unmount()
+        module.unmount()
 
         expect(log).toEqual(["C:unmount", "A:unmount"])
     })
 
     it("carries on through the destroy phase", async () => {
         const log: string[] = []
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [tracked(log, "A"), tracked(log, "B", { throwOn: "destroy" }), tracked(log, "C")],
             onModuleError: () => undefined,
         })
-        lifecycleOf(module.container).mount()
-        lifecycleOf(module.container).unmount()
+        module.mount()
+        module.unmount()
         log.length = 0
 
-        await lifecycleOf(module.container).destroy()
+        await module.destroy()
 
         expect(log).toEqual(["C:destroy", "A:destroy"])
     })
@@ -196,16 +180,15 @@ describe("with onModuleError", () => {
     it("keeps mounting the children after a parent hook failed", () => {
         const log: string[] = []
         const childService = tracked(log, "C")
-        const parent = createModuleResolution(null, {
-            root: true,
+        const parent = makeApp({
             providers: [tracked(log, "P", { throwOn: "mount" })],
             onModuleError: () => undefined,
         })
-        const child = createModuleResolution(parent.container, { providers: [childService] })
-        lifecycleOf(child.container).mount()
+        const child = makeChild(parent, { providers: [childService] })
+        child.mount()
         log.length = 0
 
-        lifecycleOf(parent.container).mount()
+        parent.mount()
 
         expect(log).toEqual(["C:mount"])
         expect(childService.counts.mount).toBe(1)
@@ -214,8 +197,7 @@ describe("with onModuleError", () => {
     it("reports a failing module hook under its own phase", () => {
         const log: string[] = []
         const seen: string[] = []
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [tracked(log, "A")],
             onModuleMount: () => {
                 throw new Error("module mount")
@@ -224,7 +206,7 @@ describe("with onModuleError", () => {
         })
         log.length = 0
 
-        lifecycleOf(module.container).mount()
+        module.mount()
 
         expect(seen).toEqual(["mount:module mount"])
         // The module hook failing does not cost the providers their hook.
@@ -235,8 +217,7 @@ describe("with onModuleError", () => {
         const log: string[] = []
         const service = tracked(log, "A")
         const seen: string[] = []
-        createModuleResolution(null, {
-            root: true,
+        makeApp({
             providers: [service],
             onModuleInit: () => {
                 throw new Error("module init")
@@ -257,8 +238,7 @@ describe("with onModuleError", () => {
                 throw boom
             }
         }
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [{ provide: Exploding, useValue: new Exploding() }],
             onModuleError: (_reportedPhase, error) => seen.push(error),
         })
@@ -270,8 +250,7 @@ describe("with onModuleError", () => {
     it("reports once per failing instance, not once per phase", async () => {
         const log: string[] = []
         const seen: string[] = []
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [
                 tracked(log, "A", { throwOn: "unmount" }),
                 tracked(log, "B", { throwOn: "unmount" }),
@@ -279,10 +258,10 @@ describe("with onModuleError", () => {
             ],
             onModuleError: (reportedPhase, error) => seen.push(`${reportedPhase}:${(error as Error).message}`),
         })
-        lifecycleOf(module.container).mount()
+        module.mount()
 
-        lifecycleOf(module.container).unmount()
-        await lifecycleOf(module.container).destroy()
+        module.unmount()
+        await module.destroy()
 
         expect(seen).toEqual(["unmount:B unmount", "unmount:A unmount"])
     })

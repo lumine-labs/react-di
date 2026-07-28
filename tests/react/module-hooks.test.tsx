@@ -5,7 +5,8 @@ import type { ReactNode } from "react"
 import type { Container } from "../../src/container/index.js"
 import type { ModulePhase } from "../../src/core/providers/module-lifecycle/module-lifecycle.types.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
-import { useModuleContext } from "../../src/react/hooks/useModuleContext.js"
+import { useContainer } from "../../src/react/hooks/useModuleContext.js"
+import { Root } from "../setup/react.js"
 import { flush, tracked } from "../setup/helpers.js"
 
 // Module hooks through props
@@ -26,15 +27,16 @@ describe("module hooks reach the lifecycle", () => {
         const log: string[] = []
 
         const { unmount } = render(
-            <ModuleProvider
-                root
-                onModuleInit={() => log.push("init")}
-                onModuleMount={() => log.push("mount")}
-                onModuleUnmount={() => log.push("unmount")}
-                onModuleDestroy={() => log.push("destroy")}
-            >
-                <div />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider
+                    onModuleInit={() => log.push("init")}
+                    onModuleMount={() => log.push("mount")}
+                    onModuleUnmount={() => log.push("unmount")}
+                    onModuleDestroy={() => log.push("destroy")}
+                >
+                    <div />
+                </ModuleProvider>
+            </Root>
         )
 
         expect(log).toEqual(["init", "mount"])
@@ -50,22 +52,23 @@ describe("module hooks reach the lifecycle", () => {
         let contextContainer: Container | null = null
 
         function Probe(): ReactNode {
-            contextContainer = useModuleContext().container
+            contextContainer = useContainer()
             return null
         }
 
         const record = (container: Container) => seen.push(container)
 
         const { unmount } = render(
-            <ModuleProvider
-                root
-                onModuleInit={record}
-                onModuleMount={record}
-                onModuleUnmount={record}
-                onModuleDestroy={record}
-            >
-                <Probe />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider
+                    onModuleInit={record}
+                    onModuleMount={record}
+                    onModuleUnmount={record}
+                    onModuleDestroy={record}
+                >
+                    <Probe />
+                </ModuleProvider>
+            </Root>
         )
 
         unmount()
@@ -81,14 +84,15 @@ describe("module hooks reach the lifecycle", () => {
 
         function Tree({ tag }: { tag: string }): ReactNode {
             return (
-                <ModuleProvider
-                    root
-                    onModuleMount={() => log.push(`mount:${tag}`)}
-                    onModuleUnmount={() => log.push(`unmount:${tag}`)}
-                    onModuleDestroy={() => log.push(`destroy:${tag}`)}
-                >
-                    <div />
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider
+                        onModuleMount={() => log.push(`mount:${tag}`)}
+                        onModuleUnmount={() => log.push(`unmount:${tag}`)}
+                        onModuleDestroy={() => log.push(`destroy:${tag}`)}
+                    >
+                        <div />
+                    </ModuleProvider>
+                </Root>
             )
         }
 
@@ -110,9 +114,11 @@ describe("module hooks reach the lifecycle", () => {
 
         function Tree({ tag }: { tag: string }): ReactNode {
             return (
-                <ModuleProvider root providers={[Service]} onModuleInit={() => log.push(`init:${tag}`)}>
-                    <div />
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider providers={[Service]} onModuleInit={() => log.push(`init:${tag}`)}>
+                        <div />
+                    </ModuleProvider>
+                </Root>
             )
         }
 
@@ -136,9 +142,11 @@ describe("onModuleError", () => {
         const Good = tracked(log, "Good")
 
         render(
-            <ModuleProvider root providers={[Bad, Good]} onModuleError={collectErrors(errors)}>
-                <div />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[Bad, Good]} onModuleError={collectErrors(errors)}>
+                    <div />
+                </ModuleProvider>
+            </Root>
         )
 
         expect(errors).toEqual([["init", "Bad init"]])
@@ -155,9 +163,11 @@ describe("onModuleError", () => {
         const Good = tracked(log, "Good")
 
         render(
-            <ModuleProvider root providers={[Bad, Good]} onModuleError={collectErrors(errors)}>
-                <div />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[Bad, Good]} onModuleError={collectErrors(errors)}>
+                    <div />
+                </ModuleProvider>
+            </Root>
         )
 
         expect(errors).toEqual([["mount", "Bad mount"]])
@@ -173,9 +183,11 @@ describe("onModuleError", () => {
         const Worse = tracked(log, "Worse", { throwOn: "destroy" })
 
         const { unmount } = render(
-            <ModuleProvider root providers={[Bad, Worse]} onModuleError={collectErrors(errors)}>
-                <div />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[Bad, Worse]} onModuleError={collectErrors(errors)}>
+                    <div />
+                </ModuleProvider>
+            </Root>
         )
         log.length = 0
 
@@ -196,18 +208,19 @@ describe("onModuleError", () => {
         const errors: Failure[] = []
 
         const { unmount } = render(
-            <ModuleProvider
-                root
-                onModuleInit={() => {
-                    throw new Error("module init boom")
-                }}
-                onModuleUnmount={() => {
-                    throw new Error("module unmount boom")
-                }}
-                onModuleError={collectErrors(errors)}
-            >
-                <div />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider
+                    onModuleInit={() => {
+                        throw new Error("module init boom")
+                    }}
+                    onModuleUnmount={() => {
+                        throw new Error("module unmount boom")
+                    }}
+                    onModuleError={collectErrors(errors)}
+                >
+                    <div />
+                </ModuleProvider>
+            </Root>
         )
 
         expect(errors).toEqual([["init", "module init boom"]])
@@ -228,9 +241,11 @@ describe("onModuleError", () => {
         const B = tracked(log, "B", { throwOn: "unmount" })
 
         const { unmount } = render(
-            <ModuleProvider root providers={[A, B]} onModuleError={collectErrors(errors)}>
-                <div />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[A, B]} onModuleError={collectErrors(errors)}>
+                    <div />
+                </ModuleProvider>
+            </Root>
         )
 
         unmount()
@@ -249,13 +264,14 @@ describe("onModuleError", () => {
 
         function Tree({ tag }: { tag: string }): ReactNode {
             return (
-                <ModuleProvider
-                    root
-                    providers={[Bad]}
-                    onModuleError={(phase, error) => errors.push([phase, `${tag}:${(error as Error).message}`])}
-                >
-                    <div />
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider
+                        providers={[Bad]}
+                        onModuleError={(phase, error) => errors.push([phase, `${tag}:${(error as Error).message}`])}
+                    >
+                        <div />
+                    </ModuleProvider>
+                </Root>
             )
         }
 
@@ -275,9 +291,11 @@ describe("onModuleError", () => {
 
         expect(() =>
             render(
-                <ModuleProvider root providers={[Bad]}>
-                    <div />
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider providers={[Bad]}>
+                        <div />
+                    </ModuleProvider>
+                </Root>
             )
         ).toThrowError(new Error("Bad init"))
 
@@ -290,9 +308,11 @@ describe("onModuleError", () => {
         const Bad = tracked(log, "Bad", { throwOn: "destroy" })
 
         const { unmount } = render(
-            <ModuleProvider root providers={[Bad]}>
-                <div />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[Bad]}>
+                    <div />
+                </ModuleProvider>
+            </Root>
         )
 
         unmount()
@@ -313,11 +333,13 @@ describe("onModuleError", () => {
         const Bad = tracked(log, "Bad", { throwOn: "init" })
 
         render(
-            <ModuleProvider root onModuleError={collectErrors(parentErrors)}>
-                <ModuleProvider providers={[Bad]} onModuleError={collectErrors(childErrors)}>
-                    <div />
+            <Root>
+                <ModuleProvider onModuleError={collectErrors(parentErrors)}>
+                    <ModuleProvider providers={[Bad]} onModuleError={collectErrors(childErrors)}>
+                        <div />
+                    </ModuleProvider>
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
 
         expect(parentErrors).toEqual([])

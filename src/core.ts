@@ -1,5 +1,6 @@
-export { createModuleResolution, resolveContainer, assertParams, assertContainerIsFree } from "./core/module/resolution.js"
-export { createModuleProviders } from "./core/providers/createModuleProviders.js"
+// The Module/App classes are the core now — explicitly unstable surface.
+
+export { App, Module } from "./core/module/module.js"
 export { ModuleLifecycle } from "./core/providers/module-lifecycle/module-lifecycle.provider.js"
 
-export type { ModuleProviders, ModuleProvidersParams } from "./core/providers/createModuleProviders.js"
+export type { ModuleParams, ProviderSnapshot } from "./core/module/module.js"

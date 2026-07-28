@@ -1,9 +1,8 @@
 import { createContext } from "react"
-import type { Container } from "../../container/index.js"
+import type { Module } from "../../core/module/module.js"
 
 export type ModuleContextValue = {
-    container: Container
-    id: string
+    module: Module
     rebuild: () => void
 }
 

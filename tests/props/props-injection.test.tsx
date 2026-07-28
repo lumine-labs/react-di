@@ -1,13 +1,15 @@
-import { act, render } from "@testing-library/react"
+import { render } from "@testing-library/react"
+import { act } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import { useState } from "react"
 
-import { createModule } from "../../src/react/factories/createModule.js"
+import { createModuleComponent } from "../../src/react/factories/createModuleComponent.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { PropsRef, type PropsAdapter } from "../../src/core/providers/props-ref/props-ref.provider.js"
 import { Inject, Injectable, Optional, decorate } from "../../src/container/decorators.js"
 import { useResolve } from "../../src/react/hooks/useResolve.js"
 import type { InjectionToken, Provider } from "../../src/container/index.js"
+import { Root } from "../setup/react.js"
 
 // The documented consumer shape: a service takes the bridge through its constructor. vitest transforms
 // with esbuild and emits no `design:paramtypes`, so the decorators go on through `decorate()` and each
@@ -36,7 +38,7 @@ function injectingService(token: InjectionToken<unknown> = PropsRef) {
 describe("PropsRef through constructor injection", () => {
     it("hands a service the component-owned bridge under the class token", () => {
         const Service = injectingService()
-        const UserModule = createModule<UserProps>({ root: true, providers: [Service as unknown as Provider] })
+        const UserModule = createModuleComponent<UserProps>({ providers: [Service as unknown as Provider] })
 
         let resolved: InstanceType<typeof Service> | null = null
         let setProps: ((props: UserProps) => void) | null = null
@@ -50,9 +52,11 @@ describe("PropsRef through constructor injection", () => {
             const [props, setPropsState] = useState<UserProps>({ userId: "u1", name: "Ann" })
             setProps = setPropsState
             return (
-                <UserModule {...props}>
-                    <Probe />
-                </UserModule>
+                <Root>
+                    <UserModule {...props}>
+                        <Probe />
+                    </UserModule>
+                </Root>
             )
         }
 
@@ -80,8 +84,8 @@ describe("PropsRef through constructor injection", () => {
         }
 
         const Service = injectingService(TOKEN)
-        const UserModule = createModule<UserProps, Boxed>(
-            { root: true, providers: [Service as unknown as Provider] },
+        const UserModule = createModuleComponent<UserProps, Boxed>(
+            { providers: [Service as unknown as Provider] },
             { adapter, token: TOKEN }
         )
 
@@ -93,9 +97,11 @@ describe("PropsRef through constructor injection", () => {
         }
 
         render(
-            <UserModule userId="u1" name="Ann">
-                <Probe />
-            </UserModule>
+            <Root>
+                <UserModule userId="u1" name="Ann">
+                    <Probe />
+                </UserModule>
+            </Root>
         )
 
         expect(resolved!.props.current).toEqual({ boxed: { userId: "u1", name: "Ann" } })
@@ -103,7 +109,7 @@ describe("PropsRef through constructor injection", () => {
 
     it("resolves an ancestor's bridge from a nested module that has none of its own", () => {
         const Service = injectingService()
-        const UserModule = createModule<UserProps>({ root: true })
+        const UserModule = createModuleComponent<UserProps>()
 
         let resolved: InstanceType<typeof Service> | null = null
 
@@ -113,11 +119,13 @@ describe("PropsRef through constructor injection", () => {
         }
 
         render(
-            <UserModule userId="u1" name="Ann">
-                <ModuleProvider providers={[Service as unknown as Provider]}>
-                    <Probe />
-                </ModuleProvider>
-            </UserModule>
+            <Root>
+                <UserModule userId="u1" name="Ann">
+                    <ModuleProvider providers={[Service as unknown as Provider]}>
+                        <Probe />
+                    </ModuleProvider>
+                </UserModule>
+            </Root>
         )
 
         expect(resolved!.props.current).toEqual({ userId: "u1", name: "Ann" })
@@ -139,9 +147,11 @@ describe("PropsRef through constructor injection", () => {
         }
 
         render(
-            <ModuleProvider root providers={[Service as unknown as Provider]}>
-                <Probe />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[Service as unknown as Provider]}>
+                    <Probe />
+                </ModuleProvider>
+            </Root>
         )
 
         expect(resolved!.props).toBeUndefined()
@@ -153,7 +163,7 @@ describe("PropsRef through constructor injection", () => {
 
 describe("PropsRef is component-owned", () => {
     it("gives two sibling mounts of the same module separate bridges", () => {
-        const UserModule = createModule<UserProps>({ root: true })
+        const UserModule = createModuleComponent<UserProps>()
 
         const refs: PropsRef<UserProps>[] = []
 
@@ -163,14 +173,14 @@ describe("PropsRef is component-owned", () => {
         }
 
         render(
-            <>
+            <Root>
                 <UserModule userId="u1" name="Ann">
                     <Probe />
                 </UserModule>
                 <UserModule userId="u2" name="Bob">
                     <Probe />
                 </UserModule>
-            </>
+            </Root>
         )
 
         expect(refs).toHaveLength(2)
@@ -180,7 +190,7 @@ describe("PropsRef is component-owned", () => {
     })
 
     it("drops the bridge with the component that owned it", () => {
-        const UserModule = createModule<UserProps>({ root: true })
+        const UserModule = createModuleComponent<UserProps>()
 
         const refs: PropsRef<UserProps>[] = []
 
@@ -190,11 +200,15 @@ describe("PropsRef is component-owned", () => {
         }
 
         function Harness({ show }: { show: boolean }) {
-            return show ? (
-                <UserModule userId="u1" name="Ann">
-                    <Probe />
-                </UserModule>
-            ) : null
+            return (
+                <Root>
+                    {show ? (
+                        <UserModule userId="u1" name="Ann">
+                            <Probe />
+                        </UserModule>
+                    ) : null}
+                </Root>
+            )
         }
 
         const { rerender } = render(<Harness show />)

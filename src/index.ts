@@ -8,14 +8,15 @@ export { Inject, InjectAll, Injectable, LazyToken, Optional, decorate } from "./
 // Modules
 // ========================================
 
+export { App, Module } from "./core/module/module.js"
+export { AppProvider } from "./react/providers/AppProvider.js"
 export { ModuleProvider } from "./react/providers/ModuleProvider.js"
-export { createModule } from "./react/factories/createModule.js"
+export { createModuleComponent } from "./react/factories/createModuleComponent.js"
 
 // Hooks
 // ========================================
 
-export { useModule } from "./react/hooks/useModule.js"
-export { useContainer, useModuleContext, useModuleRebuild } from "./react/hooks/useModuleContext.js"
+export { useContainer, useModule, useModuleContext, useModuleRebuild } from "./react/hooks/useModuleContext.js"
 export { useResolve, useResolveSafe } from "./react/hooks/useResolve.js"
 export { useResolveAll } from "./react/hooks/useResolveAll.js"
 export { usePropsRef } from "./react/hooks/usePropsRef.js"
@@ -23,7 +24,6 @@ export { usePropsRef } from "./react/hooks/usePropsRef.js"
 // System providers
 // ========================================
 
-export { ModuleMetadata } from "./core/providers/module-metadata/module-metadata.provider.js"
 export { ModuleRegistry } from "./core/providers/module-registry/module-registry.provider.js"
 export { Resolver } from "./core/providers/resolver/resolver.provider.js"
 export { PropsRef } from "./core/providers/props-ref/props-ref.provider.js"

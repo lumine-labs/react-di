@@ -15,16 +15,10 @@ export type {
     ValueProvider,
 } from "./container/container.types.js"
 
-// Module resolution
+// Module
 // ========================================
 
-export type {
-    FactoryModuleParams,
-    ModuleResolution,
-    ModuleResolutionParams,
-    RootModuleParams,
-    ScopedModuleParams,
-} from "./core/module/resolution.types.js"
+export type { ModuleParams } from "./core/module/module.js"
 
 // Lifecycle
 // ========================================
@@ -40,7 +34,6 @@ export type {
 // System providers
 // ========================================
 
-export type { ModuleMetadataInit, ModuleMetadataProvider } from "./core/providers/module-metadata/module-metadata.provider.js"
 export type { PropsAdapter } from "./core/providers/props-ref/props-ref.provider.js"
 
 // React surface
@@ -48,7 +41,8 @@ export type { PropsAdapter } from "./core/providers/props-ref/props-ref.provider
 
 export type { ModuleContextValue } from "./react/context/ModuleContext.js"
 export type { ModuleProviderProps } from "./react/providers/ModuleProvider.js"
-export type { CreateModuleOptions, CreateModuleParams } from "./react/factories/createModule.js"
+export type { AppProviderProps } from "./react/providers/AppProvider.js"
+export type { CreateModuleComponentOptions, CreateModuleComponentParams } from "./react/factories/createModuleComponent.js"
 export type { UsePropsRefOptions, UsePropsRefResult } from "./react/hooks/usePropsRef.js"
 
 // Tokens

@@ -1,7 +1,7 @@
 import type { ModuleHooks, ModulePhase, ProviderLifecycle } from "./module-lifecycle.types.js"
-import { ModuleMetadata } from "../module-metadata/module-metadata.provider.js"
+import type { Module } from "../../module/module.js"
 import type { ModuleRegistry } from "../module-registry/module-registry.provider.js"
-import { type Container, Scope } from "../../../container/index.js"
+import { Scope } from "../../../container/index.js"
 
 // ModuleLifecycle
 // ========================================
@@ -11,13 +11,23 @@ export class ModuleLifecycle {
     // ========================================
     #initialized = false
     #destroyed = false
+    #committed = false
+    #mounted = false
     #moduleHooks: ModuleHooks = {}
     #instances = new Set<ProviderLifecycle>()
 
     constructor(
-        private readonly metadata: ModuleMetadata,
+        private readonly module: Module,
         private readonly registry: ModuleRegistry
     ) {}
+
+    get initialized(): boolean {
+        return this.#initialized
+    }
+
+    get mounted(): boolean {
+        return this.#mounted
+    }
 
     // Phases
     // ========================================
@@ -34,12 +44,14 @@ export class ModuleLifecycle {
 
     mount(): void {
         if (!this.#initialized || this.#destroyed) return
-        if (this.metadata.committed) return
-        this.metadata.committed = true
+        if (this.#committed) return
+        this.#committed = true
 
         this.registry.attach()
 
-        const parent = this.metadata.parent?.resolveSafe(ModuleMetadata, false)
+        // Uniform gating: an App has no parent and mounts its tree at once; a scoped module waits for its
+        // parent, which cascades down through #mountTree once it mounts.
+        const parent = this.module.parent
         if (!parent || parent.mounted) {
             this.#mountTree()
         }
@@ -52,10 +64,10 @@ export class ModuleLifecycle {
             child.unmount()
         }
 
-        if (!this.metadata.mounted) return
+        if (!this.#mounted) return
 
         this.#runUnmountPhase()
-        this.metadata.mounted = false
+        this.#mounted = false
     }
 
     async destroy(): Promise<void> {
@@ -73,8 +85,8 @@ export class ModuleLifecycle {
     // ========================================
 
     #collectInstances(): void {
-        const container = this.metadata.container
-        const providers = this.metadata.providers
+        const container = this.module.container
+        const providers = this.module.providers
 
         // Observe every participating provider, lazy or not. Collection happens at construction, so the set
         // ends up in construction order — a dependency arrives before whatever injected it.
@@ -110,10 +122,10 @@ export class ModuleLifecycle {
     // ========================================
 
     #mountTree(): void {
-        if (!this.metadata.committed || this.metadata.mounted) return
+        if (!this.#committed || this.#mounted) return
 
         this.#runMountPhase()
-        this.metadata.mounted = true
+        this.#mounted = true
 
         for (const child of this.#children()) {
             child.#mountTree()
@@ -137,9 +149,9 @@ export class ModuleLifecycle {
 
     #children(): ModuleLifecycle[] {
         const children: ModuleLifecycle[] = []
-        for (const container of this.metadata.children) {
-            const child = resolveLifecycle(container)
-            if (child) children.push(child)
+        for (const child of this.module.children) {
+            const lifecycle = child.container.resolveSafe(ModuleLifecycle, false)
+            if (lifecycle) children.push(lifecycle)
         }
         return children
     }
@@ -150,7 +162,7 @@ export class ModuleLifecycle {
     /** One try for the whole phase: a failure here means a half-built module, so the rest is skipped. */
     #runInitPhase(): void {
         try {
-            this.#moduleHooks.onModuleInit?.(this.metadata.container)
+            this.#moduleHooks.onModuleInit?.(this.module.container)
             for (const instance of this.#instances) {
                 instance.onModuleInit?.()
             }
@@ -161,7 +173,7 @@ export class ModuleLifecycle {
 
     #runMountPhase(): void {
         try {
-            this.#moduleHooks.onModuleMount?.(this.metadata.container)
+            this.#moduleHooks.onModuleMount?.(this.module.container)
         } catch (error) {
             this.#reportError("mount", error)
         }
@@ -185,7 +197,7 @@ export class ModuleLifecycle {
         }
 
         try {
-            this.#moduleHooks.onModuleUnmount?.(this.metadata.container)
+            this.#moduleHooks.onModuleUnmount?.(this.module.container)
         } catch (error) {
             this.#reportError("unmount", error)
         }
@@ -202,7 +214,7 @@ export class ModuleLifecycle {
         }
 
         try {
-            await this.#moduleHooks.onModuleDestroy?.(this.metadata.container)
+            await this.#moduleHooks.onModuleDestroy?.(this.module.container)
         } catch (error) {
             this.#reportError("destroy", error)
         }
@@ -241,9 +253,4 @@ function isLifecycleCandidate(value: unknown): value is ProviderLifecycle {
         // eslint-disable-next-line @typescript-eslint/unbound-method
         candidate.onModuleInit || candidate.onModuleMount || candidate.onModuleUnmount || candidate.onModuleDestroy
     )
-}
-
-function resolveLifecycle(container: Container | null): ModuleLifecycle | null {
-    if (!container) return null
-    return container.resolveSafe(ModuleLifecycle, false) ?? null
 }

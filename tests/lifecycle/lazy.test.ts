@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest"
 
 import { Scope } from "../../src/container/index.js"
-import type { Container, Provider } from "../../src/container/index.js"
-import { createModuleResolution } from "../../src/core/module/resolution.js"
-import { ModuleLifecycle } from "../../src/core/providers/module-lifecycle/module-lifecycle.provider.js"
-import { phase, tracked } from "../setup/helpers.js"
+import type { Provider } from "../../src/container/index.js"
+import { makeApp, makeChild, phase, tracked } from "../setup/helpers.js"
 
 // lazy providers.
 // ========================================
@@ -13,48 +11,44 @@ import { phase, tracked } from "../setup/helpers.js"
 // resolves it, the instance joins the module that DECLARED it, and it catches up with `onModuleInit`
 // alone — mount is a tree event that has already gone past.
 
-const lifecycleOf = (container: Container): ModuleLifecycle => container.resolve(ModuleLifecycle)
-
 describe("lazy", () => {
     it("is not built at init or at mount, and joins on first resolve", async () => {
         const log: string[] = []
         const service = tracked(log, "L")
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [{ provide: service, useClass: service, lazy: true } as Provider],
         })
 
         expect(log).toEqual([])
 
-        lifecycleOf(module.container).mount()
+        module.mount()
         expect(log).toEqual([])
 
         module.container.resolve(service as never)
         expect(log).toEqual(["L:ctor", "L:init"])
         expect(service.counts.mount).toBe(0)
 
-        lifecycleOf(module.container).unmount()
+        module.unmount()
         expect(phase(log, "unmount")).toEqual(["L:unmount"])
 
-        await lifecycleOf(module.container).destroy()
+        await module.destroy()
         expect(service.counts).toEqual({ init: 1, mount: 0, unmount: 1, destroy: 1 })
     })
 
     it("joins once however often it is resolved", async () => {
         const log: string[] = []
         const service = tracked(log, "L")
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [{ provide: service, useClass: service, lazy: true } as Provider],
         })
-        lifecycleOf(module.container).mount()
+        module.mount()
 
         const first = module.container.resolve(service as never)
         const second = module.container.resolve(service as never)
         expect(second).toBe(first)
 
-        lifecycleOf(module.container).unmount()
-        await lifecycleOf(module.container).destroy()
+        module.unmount()
+        await module.destroy()
 
         expect(service.counts).toEqual({ init: 1, mount: 0, unmount: 1, destroy: 1 })
     })
@@ -62,8 +56,7 @@ describe("lazy", () => {
     it("works for a lazy factory provider too", async () => {
         const log: string[] = []
         const TOKEN = Symbol("lazy-factory")
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [
                 {
                     provide: TOKEN,
@@ -80,14 +73,14 @@ describe("lazy", () => {
                 },
             ],
         })
-        lifecycleOf(module.container).mount()
+        module.mount()
         expect(log).toEqual([])
 
         module.container.resolve(TOKEN)
         expect(log).toEqual(["F:ctor", "F:init"])
 
-        lifecycleOf(module.container).unmount()
-        await lifecycleOf(module.container).destroy()
+        module.unmount()
+        await module.destroy()
         expect(log).toEqual(["F:ctor", "F:init", "F:unmount", "F:destroy"])
     })
 
@@ -95,15 +88,14 @@ describe("lazy", () => {
         const log: string[] = []
         const service = tracked(log, "T")
         const TOKEN = Symbol("lazy-transient")
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [{ provide: TOKEN, useClass: service, scope: Scope.Transient, lazy: true } as Provider],
         })
-        lifecycleOf(module.container).mount()
+        module.mount()
         module.container.resolve(TOKEN)
 
-        lifecycleOf(module.container).unmount()
-        await lifecycleOf(module.container).destroy()
+        module.unmount()
+        await module.destroy()
 
         expect(service.counts).toEqual({ init: 0, mount: 0, unmount: 0, destroy: 0 })
         expect(log).toEqual(["T:ctor"])
@@ -112,79 +104,75 @@ describe("lazy", () => {
     it("joins the declaring module when a descendant resolves it", async () => {
         const log: string[] = []
         const service = tracked(log, "L")
-        const parent = createModuleResolution(null, {
-            root: true,
+        const parent = makeApp({
             providers: [{ provide: service, useClass: service, lazy: true } as Provider],
         })
-        const child = createModuleResolution(parent.container, { providers: [] })
-        lifecycleOf(parent.container).mount()
-        lifecycleOf(child.container).mount()
+        const child = makeChild(parent, { providers: [] })
+        parent.mount()
+        child.mount()
 
         child.container.resolve(service as never)
         expect(log).toEqual(["L:ctor", "L:init"])
 
         // The resolver's own module tears down; the instance belongs to the declaring module and survives.
-        lifecycleOf(child.container).unmount()
-        await lifecycleOf(child.container).destroy()
+        child.unmount()
+        await child.destroy()
         expect(service.counts).toEqual({ init: 1, mount: 0, unmount: 0, destroy: 0 })
 
-        lifecycleOf(parent.container).unmount()
-        await lifecycleOf(parent.container).destroy()
+        parent.unmount()
+        await parent.destroy()
         expect(service.counts).toEqual({ init: 1, mount: 0, unmount: 1, destroy: 1 })
     })
 
     it("survives a grandchild's teardown too", async () => {
         const log: string[] = []
         const service = tracked(log, "L")
-        const root = createModuleResolution(null, {
-            root: true,
+        const root = makeApp({
             providers: [{ provide: service, useClass: service, lazy: true } as Provider],
         })
-        const middle = createModuleResolution(root.container, { providers: [] })
-        const leaf = createModuleResolution(middle.container, { providers: [] })
-        lifecycleOf(root.container).mount()
-        lifecycleOf(middle.container).mount()
-        lifecycleOf(leaf.container).mount()
+        const middle = makeChild(root, { providers: [] })
+        const leaf = makeChild(middle, { providers: [] })
+        root.mount()
+        middle.mount()
+        leaf.mount()
 
         leaf.container.resolve(service as never)
         expect(service.counts.init).toBe(1)
 
-        lifecycleOf(middle.container).unmount()
-        await lifecycleOf(middle.container).destroy()
+        middle.unmount()
+        await middle.destroy()
         expect(service.counts).toEqual({ init: 1, mount: 0, unmount: 0, destroy: 0 })
 
-        lifecycleOf(root.container).unmount()
-        await lifecycleOf(root.container).destroy()
+        root.unmount()
+        await root.destroy()
         expect(service.counts).toEqual({ init: 1, mount: 0, unmount: 1, destroy: 1 })
     })
 
     it("still joins when resolved after the module unmounted", async () => {
         const log: string[] = []
         const service = tracked(log, "L")
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [{ provide: service, useClass: service, lazy: true } as Provider],
         })
-        lifecycleOf(module.container).mount()
-        lifecycleOf(module.container).unmount()
+        module.mount()
+        module.unmount()
 
         module.container.resolve(service as never)
         expect(log).toEqual(["L:ctor", "L:init"])
 
-        await lifecycleOf(module.container).destroy()
+        await module.destroy()
         expect(service.counts).toEqual({ init: 1, mount: 0, unmount: 0, destroy: 1 })
     })
 
     it("is not adopted at all once the module is destroyed", async () => {
         const log: string[] = []
         const service = tracked(log, "L")
-        const module = createModuleResolution(null, {
-            root: true,
+        const module = makeApp({
             providers: [{ provide: service, useClass: service, lazy: true } as Provider],
         })
-        lifecycleOf(module.container).mount()
-        lifecycleOf(module.container).unmount()
-        await lifecycleOf(module.container).destroy()
+        module.mount()
+        module.unmount()
+        await module.destroy()
 
         module.container.resolve(service as never)
 
@@ -196,8 +184,7 @@ describe("lazy", () => {
         const log: string[] = []
         const eager = tracked(log, "E")
         const lazy = tracked(log, "L")
-        createModuleResolution(null, {
-            root: true,
+        makeApp({
             providers: [{ provide: lazy, useClass: lazy, lazy: true } as Provider, eager],
         })
 

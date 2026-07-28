@@ -7,6 +7,7 @@ import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useContainer, useModuleContext, useModuleRebuild } from "../../src/react/hooks/useModuleContext.js"
 import { useResolve, useResolveSafe } from "../../src/react/hooks/useResolve.js"
 import { useResolveAll } from "../../src/react/hooks/useResolveAll.js"
+import { Root } from "../setup/react.js"
 
 // Resolution hooks
 // ========================================
@@ -43,9 +44,9 @@ describe("useResolve", () => {
         }
 
         render(
-            <ModuleProvider root providers={[Counter]}>
+            <Root providers={[Counter]}>
                 <Probe />
-            </ModuleProvider>
+            </Root>
         )
 
         expect(seen).toBeInstanceOf(Counter)
@@ -61,11 +62,11 @@ describe("useResolve", () => {
         }
 
         render(
-            <ModuleProvider root providers={[{ provide: SHARED, useValue: "from-root" }]}>
+            <Root providers={[{ provide: SHARED, useValue: "from-root" }]}>
                 <ModuleProvider>
                     <Probe />
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
 
         expect(seen).toBe("from-root")
@@ -81,9 +82,9 @@ describe("useResolve", () => {
 
         expect(() =>
             render(
-                <ModuleProvider root>
+                <Root>
                     <Probe />
-                </ModuleProvider>
+                </Root>
             )
         ).toThrowError(new Error("Token tests.hooks.missing is not registered in this container or any ancestor."))
 
@@ -100,11 +101,11 @@ describe("useResolve", () => {
 
         expect(() =>
             render(
-                <ModuleProvider root providers={[{ provide: SHARED, useValue: "from-root" }]}>
+                <Root providers={[{ provide: SHARED, useValue: "from-root" }]}>
                     <ModuleProvider>
                         <Probe />
                     </ModuleProvider>
-                </ModuleProvider>
+                </Root>
             )
         ).toThrowError(
             new Error("Token tests.hooks.shared is not registered in this container (searched that container only).")
@@ -126,10 +127,10 @@ describe("useResolve", () => {
             const [tick, setTick] = useState(0)
             bump = () => setTick((value) => value + 1)
             return (
-                <ModuleProvider root providers={[TRANSIENT_COUNTER]}>
+                <Root providers={[TRANSIENT_COUNTER]}>
                     <Probe />
                     <span>{tick}</span>
-                </ModuleProvider>
+                </Root>
             )
         }
 
@@ -155,9 +156,11 @@ describe("useResolve", () => {
         }
 
         render(
-            <ModuleProvider root providers={[TRANSIENT_COUNTER]}>
-                <Probe />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[TRANSIENT_COUNTER]}>
+                    <Probe />
+                </ModuleProvider>
+            </Root>
         )
 
         expect(seen.at(-1)!.seq).toBe(1)
@@ -182,15 +185,14 @@ describe("useResolve", () => {
         }
 
         render(
-            <ModuleProvider
-                root
+            <Root
                 providers={[
                     { provide: A, useValue: "a" },
                     { provide: B, useValue: "b" },
                 ]}
             >
                 <Probe />
-            </ModuleProvider>
+            </Root>
         )
 
         expect(seen).toEqual(["a"])
@@ -209,9 +211,9 @@ describe("useResolveSafe", () => {
         }
 
         render(
-            <ModuleProvider root>
+            <Root>
                 <Probe />
-            </ModuleProvider>
+            </Root>
         )
 
         expect(seen).toBeUndefined()
@@ -229,11 +231,11 @@ describe("useResolveSafe", () => {
         }
 
         render(
-            <ModuleProvider root providers={[{ provide: SHARED, useValue: "from-root" }]}>
+            <Root providers={[{ provide: SHARED, useValue: "from-root" }]}>
                 <ModuleProvider>
                     <Probe />
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
 
         expect(seen).toEqual(["from-root"])
@@ -252,8 +254,7 @@ describe("useResolveSafe", () => {
 
         expect(() =>
             render(
-                <ModuleProvider
-                    root
+                <Root
                     providers={[
                         {
                             provide: THROWING,
@@ -265,7 +266,7 @@ describe("useResolveSafe", () => {
                     ]}
                 >
                     <Probe />
-                </ModuleProvider>
+                </Root>
             )
         ).toThrowError(new Error("factory failed"))
 
@@ -287,10 +288,10 @@ describe("useResolveSafe", () => {
             const [tick, setTick] = useState(0)
             bump = () => setTick((value) => value + 1)
             return (
-                <ModuleProvider root providers={[TRANSIENT_COUNTER]}>
+                <Root providers={[TRANSIENT_COUNTER]}>
                     <Probe />
                     <span>{tick}</span>
-                </ModuleProvider>
+                </Root>
             )
         }
 
@@ -313,13 +314,13 @@ describe("useResolveAll", () => {
         }
 
         render(
-            <ModuleProvider root providers={[{ provide: SHARED, useValue: "root" }]}>
+            <Root providers={[{ provide: SHARED, useValue: "root" }]}>
                 <ModuleProvider providers={[{ provide: SHARED, useValue: "child" }]}>
                     <ModuleProvider providers={[{ provide: SHARED, useValue: "grandchild" }]}>
                         <Probe />
                     </ModuleProvider>
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
 
         expect(seen).toEqual(["grandchild", "child", "root"])
@@ -334,9 +335,9 @@ describe("useResolveAll", () => {
         }
 
         render(
-            <ModuleProvider root>
+            <Root>
                 <Probe />
-            </ModuleProvider>
+            </Root>
         )
 
         expect(seen).toEqual([])
@@ -357,10 +358,12 @@ describe("useResolveAll", () => {
             const [tick, setTick] = useState(0)
             bump = () => setTick((value) => value + 1)
             return (
-                <ModuleProvider root providers={[{ provide: SHARED, useValue: "root" }]}>
-                    <Probe />
-                    <span>{tick}</span>
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider providers={[{ provide: SHARED, useValue: "child" }]}>
+                        <Probe />
+                        <span>{tick}</span>
+                    </ModuleProvider>
+                </Root>
             )
         }
 
@@ -373,7 +376,7 @@ describe("useResolveAll", () => {
         act(() => rebuild?.())
 
         expect(seen.at(-1)).not.toBe(seen[0])
-        expect(seen.at(-1)).toEqual(["root"])
+        expect(seen.at(-1)).toEqual(["child"])
     })
 })
 
@@ -391,12 +394,14 @@ describe("useModuleContext, useContainer, useModuleRebuild", () => {
         }
 
         render(
-            <ModuleProvider root id="same">
-                <Probe />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider id="same">
+                    <Probe />
+                </ModuleProvider>
+            </Root>
         )
 
-        expect(container).toBe(context!.container)
+        expect(container).toBe(context!.module.container)
         expect(rebuild).toBe(context!.rebuild)
         expect(container).toBeInstanceOf(Container)
     })
@@ -414,10 +419,12 @@ describe("useModuleContext, useContainer, useModuleRebuild", () => {
             const [tick, setTick] = useState(0)
             bump = () => setTick((value) => value + 1)
             return (
-                <ModuleProvider root>
-                    <Probe />
-                    <span>{tick}</span>
-                </ModuleProvider>
+                <Root>
+                    <ModuleProvider>
+                        <Probe />
+                        <span>{tick}</span>
+                    </ModuleProvider>
+                </Root>
             )
         }
 

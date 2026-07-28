@@ -1,35 +1,33 @@
 import { describe, expect, it, vi } from "vitest"
 import { render } from "@testing-library/react"
-import { useState, type ReactNode } from "react"
+import type { ReactNode } from "react"
 
-import { Container, decorate, Injectable } from "../../src/container/index.js"
+import { decorate, Injectable } from "../../src/container/index.js"
 import type { Provider } from "../../src/container/index.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useResolve } from "../../src/react/hooks/useResolve.js"
 import { useModuleContext } from "../../src/react/hooks/useModuleContext.js"
+import { Root, svc } from "../setup/react.js"
+import { flush } from "../setup/helpers.js"
 
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+// Lifecycle through React
+// ========================================
+//
+// The four phases run against the real renderer now: `<Root>` is `<AppProvider app={new App(...)}>`, and
+// each scoped `<ModuleProvider>` inside it owns init on render, mount on effect, unmount + deferred destroy
+// on cleanup. Ordering, gating and the deferred-destroy contract match the imperative drive.
 
-function svc(log: string[], label: string) {
-    const K = class {
-        onModuleInit() { log.push(`${label}:init`) }
-        onModuleMount() { log.push(`${label}:mount`) }
-        onModuleUnmount() { log.push(`${label}:unmount`) }
-        async onModuleDestroy() { log.push(`${label}:destroy`) }
-    }
-    decorate(Injectable(), K)
-    return K as unknown as Provider
-}
-
-describe("V2 lifecycle through React", () => {
+describe("lifecycle through React", () => {
     it("runs all four phases across a nested tree in the right order", async () => {
         const log: string[] = []
         const { unmount } = render(
-            <ModuleProvider root providers={[svc(log, "P")]}>
-                <ModuleProvider providers={[svc(log, "C")]}>
-                    <div />
+            <Root>
+                <ModuleProvider providers={[svc(log, "P")]}>
+                    <ModuleProvider providers={[svc(log, "C")]}>
+                        <div />
+                    </ModuleProvider>
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
 
         expect(log.filter((l) => l.endsWith(":init"))).toEqual(["P:init", "C:init"])
@@ -57,11 +55,13 @@ describe("V2 lifecycle through React", () => {
         }
 
         const { unmount } = render(
-            <ModuleProvider root providers={[slow("P", 20)]}>
-                <ModuleProvider providers={[slow("C", 5)]}>
-                    <div />
+            <Root>
+                <ModuleProvider providers={[slow("P", 20)]}>
+                    <ModuleProvider providers={[slow("C", 5)]}>
+                        <div />
+                    </ModuleProvider>
                 </ModuleProvider>
-            </ModuleProvider>
+            </Root>
         )
 
         unmount()
@@ -74,16 +74,17 @@ describe("V2 lifecycle through React", () => {
     it("fires module hooks around provider hooks", async () => {
         const log: string[] = []
         const { unmount } = render(
-            <ModuleProvider
-                root
-                providers={[svc(log, "svc")]}
-                onModuleInit={() => log.push("module:init")}
-                onModuleMount={() => log.push("module:mount")}
-                onModuleUnmount={() => log.push("module:unmount")}
-                onModuleDestroy={() => log.push("module:destroy")}
-            >
-                <div />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider
+                    providers={[svc(log, "svc")]}
+                    onModuleInit={() => log.push("module:init")}
+                    onModuleMount={() => log.push("module:mount")}
+                    onModuleUnmount={() => log.push("module:unmount")}
+                    onModuleDestroy={() => log.push("module:destroy")}
+                >
+                    <div />
+                </ModuleProvider>
+            </Root>
         )
         expect(log).toEqual(["module:init", "svc:init", "module:mount", "svc:mount"])
 
@@ -100,25 +101,31 @@ describe("V2 lifecycle through React", () => {
 
         function Child(): ReactNode {
             useResolve(Token as never)
-            seenId = useModuleContext().id
+            seenId = useModuleContext().module.id
             return null
         }
 
         render(
-            <ModuleProvider root id="app" providers={[Token]}>
-                <Child />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider id="feature" providers={[Token]}>
+                    <Child />
+                </ModuleProvider>
+            </Root>
         )
-        expect(seenId).toBe("app")
+        expect(seenId).toBe("feature")
     })
 
     it("tears down only the subtree that unmounts", async () => {
         const log: string[] = []
         function Tree({ showChild }: { showChild: boolean }): ReactNode {
             return (
-                <ModuleProvider root providers={[svc(log, "P")]}>
-                    {showChild ? <ModuleProvider providers={[svc(log, "C")]}><div /></ModuleProvider> : null}
-                </ModuleProvider>
+                <Root providers={[svc(log, "P")]}>
+                    {showChild ? (
+                        <ModuleProvider providers={[svc(log, "C")]}>
+                            <div />
+                        </ModuleProvider>
+                    ) : null}
+                </Root>
             )
         }
         const { rerender } = render(<Tree showChild />)
@@ -139,16 +146,20 @@ describe("V2 lifecycle through React", () => {
         }
 
         const { rerender, unmount } = render(
-            <ModuleProvider root providers={[{ provide: Token, useClass: Token, lazy: true } as Provider]}>
-                <Child resolveIt={false} />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[{ provide: Token, useClass: Token, lazy: true } as Provider]}>
+                    <Child resolveIt={false} />
+                </ModuleProvider>
+            </Root>
         )
         expect(log).toEqual([])
 
         rerender(
-            <ModuleProvider root providers={[{ provide: Token, useClass: Token, lazy: true } as Provider]}>
-                <Child resolveIt />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[{ provide: Token, useClass: Token, lazy: true } as Provider]}>
+                    <Child resolveIt />
+                </ModuleProvider>
+            </Root>
         )
         expect(log).toEqual(["L:init"])
 
@@ -164,13 +175,19 @@ describe("V2 lifecycle through React", () => {
         const onRejection = (event: PromiseRejectionEvent) => rejections.push(event.reason)
         window.addEventListener("unhandledrejection", onRejection)
 
-        const Bad = class { async onModuleDestroy() { throw new Error("destroy boom") } }
+        const Bad = class {
+            async onModuleDestroy() {
+                throw new Error("destroy boom")
+            }
+        }
         decorate(Injectable(), Bad)
 
         const { unmount } = render(
-            <ModuleProvider root providers={[Bad as unknown as Provider]}>
-                <div />
-            </ModuleProvider>
+            <Root>
+                <ModuleProvider providers={[Bad as unknown as Provider]}>
+                    <div />
+                </ModuleProvider>
+            </Root>
         )
         unmount()
         await flush()
@@ -179,27 +196,5 @@ describe("V2 lifecycle through React", () => {
         expect(rejections).toEqual([])
         expect(spy).toHaveBeenCalled()
         spy.mockRestore()
-    })
-
-    it("still tears down a nested root when the whole tree unmounts", async () => {
-        // A nested root detaches from the ancestor's registry, so nothing claims it on the ancestor's
-        // behalf. Its own React cleanup must therefore still carry it all the way through destroy.
-        const log: string[] = []
-        const { unmount } = render(
-            <ModuleProvider root providers={[svc(log, "P")]}>
-                <ModuleProvider root providers={[svc(log, "R")]}>
-                    <ModuleProvider factory={() => new Container()} providers={[svc(log, "F")]}>
-                        <div />
-                    </ModuleProvider>
-                </ModuleProvider>
-            </ModuleProvider>
-        )
-        log.length = 0
-
-        unmount()
-        await flush()
-
-        expect(log.filter((e) => e.endsWith(":unmount")).sort()).toEqual(["F:unmount", "P:unmount", "R:unmount"])
-        expect(log.filter((e) => e.endsWith(":destroy")).sort()).toEqual(["F:destroy", "P:destroy", "R:destroy"])
     })
 })

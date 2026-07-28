@@ -2,39 +2,43 @@ import { act, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useState } from "react"
 
-import { createModule } from "../../src/react/factories/createModule.js"
+import { createModuleComponent } from "../../src/react/factories/createModuleComponent.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { PropsRef, type PropsAdapter } from "../../src/core/providers/props-ref/props-ref.provider.js"
-import { useModuleContext } from "../../src/react/hooks/useModuleContext.js"
+import { useContainer, useModuleContext } from "../../src/react/hooks/useModuleContext.js"
 import { useResolve, useResolveSafe } from "../../src/react/hooks/useResolve.js"
 import { Container } from "../../src/container/index.js"
 import type { InjectionToken } from "../../src/container/index.js"
+import { Root } from "../setup/react.js"
 
-// `createModule` is `ModuleProvider` plus an automatic props bridge: whatever the component is rendered
-// with reaches the container as a `PropsRef`, without the module declaring anything props-related.
+// `createModuleComponent` is a scoped `ModuleProvider` plus an automatic props bridge: whatever the component is
+// rendered with reaches the container as a `PropsRef`, without the module declaring anything props-related.
+// Being scoped-only, every one of these needs a module in context — an `<AppProvider>` via `<Root>`.
 
 type UserProps = { userId: string; name: string }
 
 // Params object
 // ========================================
 
-describe("createModule with a params object", () => {
+describe("createModuleComponent with a params object", () => {
     it("bridges the component's props and honours the declared params", () => {
-        const UserModule = createModule<UserProps>({ root: true, id: "user-module", providers: [] })
+        const UserModule = createModuleComponent<UserProps>({ id: "user-module", providers: [] })
 
         let bridged: PropsRef<UserProps> | null = null
         let moduleId: string | null = null
 
         function Probe() {
             bridged = useResolve(PropsRef) as PropsRef<UserProps>
-            moduleId = useModuleContext().id
+            moduleId = useModuleContext().module.id
             return <span data-testid="name">{bridged.current.name}</span>
         }
 
         render(
-            <UserModule userId="u1" name="Ann">
-                <Probe />
-            </UserModule>
+            <Root>
+                <UserModule userId="u1" name="Ann">
+                    <Probe />
+                </UserModule>
+            </Root>
         )
 
         expect(moduleId).toBe("user-module")
@@ -43,7 +47,7 @@ describe("createModule with a params object", () => {
     })
 
     it("keeps children out of the bridged props", () => {
-        const UserModule = createModule<UserProps>({ root: true })
+        const UserModule = createModuleComponent<UserProps>()
 
         let bridged: PropsRef<UserProps> | null = null
 
@@ -53,9 +57,11 @@ describe("createModule with a params object", () => {
         }
 
         render(
-            <UserModule userId="u1" name="Ann">
-                <Probe />
-            </UserModule>
+            <Root>
+                <UserModule userId="u1" name="Ann">
+                    <Probe />
+                </UserModule>
+            </Root>
         )
 
         expect(Object.keys(bridged!.current)).toEqual(["userId", "name"])
@@ -67,8 +73,7 @@ describe("createModule with a params object", () => {
             readonly on = true
         }
 
-        const UserModule = createModule<UserProps>({
-            root: true,
+        const UserModule = createModuleComponent<UserProps>({
             providers: [{ provide: Flag, useValue: new Flag() }],
         })
 
@@ -82,9 +87,11 @@ describe("createModule with a params object", () => {
         }
 
         render(
-            <UserModule userId="u1" name="Ann">
-                <Probe />
-            </UserModule>
+            <Root>
+                <UserModule userId="u1" name="Ann">
+                    <Probe />
+                </UserModule>
+            </Root>
         )
 
         expect(bridged).toBeInstanceOf(PropsRef)
@@ -92,7 +99,7 @@ describe("createModule with a params object", () => {
     })
 
     it("tracks later props on the same bridge instance", () => {
-        const UserModule = createModule<UserProps>({ root: true })
+        const UserModule = createModuleComponent<UserProps>()
 
         let bridged: PropsRef<UserProps> | null = null
         let setProps: ((props: UserProps) => void) | null = null
@@ -106,9 +113,11 @@ describe("createModule with a params object", () => {
             const [props, setPropsState] = useState<UserProps>({ userId: "u1", name: "Ann" })
             setProps = setPropsState
             return (
-                <UserModule {...props}>
-                    <Probe />
-                </UserModule>
+                <Root>
+                    <UserModule {...props}>
+                        <Probe />
+                    </UserModule>
+                </Root>
             )
         }
 
@@ -125,26 +134,28 @@ describe("createModule with a params object", () => {
 // Params from props
 // ========================================
 
-describe("createModule with a params callback", () => {
+describe("createModuleComponent with a params callback", () => {
     it("calls the callback with the props minus children and uses what it returns", () => {
         const seen: UserProps[] = []
 
-        const UserModule = createModule<UserProps>((props) => {
+        const UserModule = createModuleComponent<UserProps>((props) => {
             seen.push(props)
-            return { root: true, id: `user-${props.userId}` }
+            return { id: `user-${props.userId}` }
         })
 
         let moduleId: string | null = null
 
         function Probe() {
-            moduleId = useModuleContext().id
+            moduleId = useModuleContext().module.id
             return null
         }
 
         render(
-            <UserModule userId="u7" name="Ann">
-                <Probe />
-            </UserModule>
+            <Root>
+                <UserModule userId="u7" name="Ann">
+                    <Probe />
+                </UserModule>
+            </Root>
         )
 
         expect(seen[0]).toEqual({ userId: "u7", name: "Ann" })
@@ -152,13 +163,13 @@ describe("createModule with a params callback", () => {
     })
 
     it("does not change the module id without a rebuild, because id is read once per resolution", () => {
-        const UserModule = createModule<UserProps>((props) => ({ root: true, id: `user-${props.userId}` }))
+        const UserModule = createModuleComponent<UserProps>((props) => ({ id: `user-${props.userId}` }))
 
         const ids: string[] = []
         let setProps: ((props: UserProps) => void) | null = null
 
         function Probe() {
-            ids.push(useModuleContext().id)
+            ids.push(useModuleContext().module.id)
             return null
         }
 
@@ -166,9 +177,11 @@ describe("createModule with a params callback", () => {
             const [props, setPropsState] = useState<UserProps>({ userId: "u1", name: "Ann" })
             setProps = setPropsState
             return (
-                <UserModule {...props}>
-                    <Probe />
-                </UserModule>
+                <Root>
+                    <UserModule {...props}>
+                        <Probe />
+                    </UserModule>
+                </Root>
             )
         }
 
@@ -182,9 +195,9 @@ describe("createModule with a params callback", () => {
     it("re-runs on every render, always with the current props", () => {
         const seen: UserProps[] = []
 
-        const UserModule = createModule<UserProps>((props) => {
+        const UserModule = createModuleComponent<UserProps>((props) => {
             seen.push(props)
-            return { root: true }
+            return {}
         })
 
         let setProps: ((props: UserProps) => void) | null = null
@@ -192,7 +205,11 @@ describe("createModule with a params callback", () => {
         function Harness() {
             const [props, setPropsState] = useState<UserProps>({ userId: "u1", name: "Ann" })
             setProps = setPropsState
-            return <UserModule {...props} />
+            return (
+                <Root>
+                    <UserModule {...props} />
+                </Root>
+            )
         }
 
         render(<Harness />)
@@ -206,11 +223,11 @@ describe("createModule with a params callback", () => {
 // Options: adapter + token
 // ========================================
 
-describe("createModule with { adapter, token }", () => {
+describe("createModuleComponent with { adapter, token }", () => {
     type Point = { x: number }
     type Boxed = { boxed: Point }
 
-    const CUSTOM: InjectionToken<PropsRef<Boxed>> = Symbol.for("tests.createModule.custom")
+    const CUSTOM: InjectionToken<PropsRef<Boxed>> = Symbol.for("tests.createModuleComponent.custom")
 
     it("bridges through the adapter under the custom token", () => {
         const adapter: PropsAdapter<Point, Boxed> = {
@@ -221,7 +238,7 @@ describe("createModule with { adapter, token }", () => {
             }),
         }
 
-        const PointModule = createModule<Point, Boxed>({ root: true }, { adapter, token: CUSTOM })
+        const PointModule = createModuleComponent<Point, Boxed>({}, { adapter, token: CUSTOM })
 
         let boxed: PropsRef<Boxed> | undefined
         let byClass: PropsRef<unknown> | undefined
@@ -237,9 +254,11 @@ describe("createModule with { adapter, token }", () => {
             const [point, setPointState] = useState<Point>({ x: 1 })
             setPoint = setPointState
             return (
-                <PointModule {...point}>
-                    <Probe />
-                </PointModule>
+                <Root>
+                    <PointModule {...point}>
+                        <Probe />
+                    </PointModule>
+                </Root>
             )
         }
 
@@ -262,43 +281,12 @@ describe("createModule with { adapter, token }", () => {
     })
 })
 
-// Container modes
+// Under a parent module
 // ========================================
 
-describe("createModule across the container modes", () => {
-    it("registers the bridge on the container a factory hands over", () => {
-        const containers: Container[] = []
-        const UserModule = createModule<UserProps>({
-            factory: () => {
-                const container = new Container()
-                containers.push(container)
-                return container
-            },
-        })
-
-        let bridged: PropsRef<UserProps> | null = null
-        let own: Container | null = null
-
-        function Probe() {
-            bridged = useResolve(PropsRef) as PropsRef<UserProps>
-            own = useModuleContext().container
-            return null
-        }
-
-        render(
-            <UserModule userId="u1" name="Ann">
-                <Probe />
-            </UserModule>
-        )
-
-        expect(containers).toHaveLength(1)
-        expect(own).toBe(containers[0])
-        expect(containers[0]!.isRegistered(PropsRef, false)).toBe(true)
-        expect(bridged!.current).toEqual({ userId: "u1", name: "Ann" })
-    })
-
+describe("createModuleComponent under a parent", () => {
     it("keeps the bridge across a rebuild of a scoped module under a parent", () => {
-        const UserModule = createModule<UserProps>((props) => ({ rebuildOn: [props.userId] }))
+        const UserModule = createModuleComponent<UserProps>((props) => ({ rebuildOn: [props.userId] }))
 
         const containers: Container[] = []
         let bridged: PropsRef<UserProps> | null = null
@@ -307,12 +295,12 @@ describe("createModule across the container modes", () => {
 
         function Probe() {
             bridged = useResolve(PropsRef) as PropsRef<UserProps>
-            containers.push(useModuleContext().container)
+            containers.push(useContainer())
             return null
         }
 
         function ParentProbe() {
-            parent = useModuleContext().container
+            parent = useContainer()
             return null
         }
 
@@ -320,12 +308,12 @@ describe("createModule across the container modes", () => {
             const [props, setPropsState] = useState<UserProps>({ userId: "u1", name: "Ann" })
             setProps = setPropsState
             return (
-                <ModuleProvider root id="app">
+                <Root id="app">
                     <ParentProbe />
                     <UserModule {...props}>
                         <Probe />
                     </UserModule>
-                </ModuleProvider>
+                </Root>
             )
         }
 
@@ -347,16 +335,21 @@ describe("createModule across the container modes", () => {
 // Clashing with the auto-bridge
 // ========================================
 
-describe("createModule and a hand-rolled bridge", () => {
+describe("createModuleComponent and a hand-rolled bridge", () => {
     it("refuses a second provider on the same token", () => {
         const spy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-        const Clashing = createModule<UserProps>({
-            root: true,
+        const Clashing = createModuleComponent<UserProps>({
             providers: [{ provide: PropsRef, useValue: new PropsRef({ props: {} }) }],
         })
 
-        expect(() => render(<Clashing userId="u1" name="Ann" />)).toThrow(/already registered on this container/)
+        expect(() =>
+            render(
+                <Root>
+                    <Clashing userId="u1" name="Ann" />
+                </Root>
+            )
+        ).toThrow(/already registered on this container/)
 
         spy.mockRestore()
     })
@@ -365,9 +358,9 @@ describe("createModule and a hand-rolled bridge", () => {
 // No arguments
 // ========================================
 
-describe("createModule with no arguments", () => {
+describe("createModuleComponent with no arguments", () => {
     it("still owns a scope and still bridges (empty) props", () => {
-        const Scope = createModule()
+        const Scope = createModuleComponent()
 
         let bridged: PropsRef<object> | null = null
         let inner: string | null = null
@@ -375,22 +368,22 @@ describe("createModule with no arguments", () => {
 
         function Probe() {
             bridged = useResolve(PropsRef) as PropsRef<object>
-            inner = useModuleContext().id
+            inner = useModuleContext().module.id
             return null
         }
 
         function OuterProbe() {
-            outer = useModuleContext().id
+            outer = useModuleContext().module.id
             return null
         }
 
         render(
-            <ModuleProvider root id="app">
+            <Root id="app">
                 <OuterProbe />
                 <Scope>
                     <Probe />
                 </Scope>
-            </ModuleProvider>
+            </Root>
         )
 
         expect(outer).toBe("app")
@@ -399,15 +392,15 @@ describe("createModule with no arguments", () => {
     })
 
     it("is named Module for devtools", () => {
-        const Scope = createModule()
+        const Scope = createModuleComponent()
         expect((Scope as { displayName?: string }).displayName).toBe("Module")
     })
 
-    it("throws without an enclosing module, because it declares neither root nor factory", () => {
-        const Scope = createModule()
+    it("throws without an enclosing module, because it is scoped-only", () => {
+        const Scope = createModuleComponent()
         const spy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-        expect(() => render(<Scope />)).toThrow(/No parent container in context/)
+        expect(() => render(<Scope />)).toThrow(/ModuleProvider requires a parent module in context/)
 
         spy.mockRestore()
     })
@@ -416,7 +409,7 @@ describe("createModule with no arguments", () => {
 // rebuildOn derived from props
 // ========================================
 
-describe("createModule rebuilding on a props-derived key", () => {
+describe("createModuleComponent rebuilding on a props-derived key", () => {
     class UserService {
         static instances = 0
         readonly seq = ++UserService.instances
@@ -435,9 +428,8 @@ describe("createModule rebuilding on a props-derived key", () => {
         }
     }
 
-    // The module declares nothing props-related: `createModule` bridges, and the factory injects.
-    const UserModule = createModule<UserProps>((props) => ({
-        root: true,
+    // The module declares nothing props-related: `createModuleComponent` bridges, and the factory injects.
+    const UserModule = createModuleComponent<UserProps>((props) => ({
         rebuildOn: [props.userId],
         providers: [
             {
@@ -460,9 +452,11 @@ describe("createModule rebuilding on a props-derived key", () => {
         const [props, setPropsState] = useState<UserProps>({ userId: "u1", name: "Ann" })
         setProps = setPropsState
         return (
-            <UserModule {...props}>
-                <Probe />
-            </UserModule>
+            <Root>
+                <UserModule {...props}>
+                    <Probe />
+                </UserModule>
+            </Root>
         )
     }
 
@@ -511,7 +505,7 @@ describe("createModule rebuilding on a props-derived key", () => {
 
     it("does not re-run the adapter's create across a rebuild", () => {
         type Boxed = { boxed: UserProps }
-        const TOKEN: InjectionToken<PropsRef<Boxed>> = Symbol.for("tests.createModule.rebuild-adapter")
+        const TOKEN: InjectionToken<PropsRef<Boxed>> = Symbol.for("tests.createModuleComponent.rebuild-adapter")
 
         const adapter: PropsAdapter<UserProps, Boxed> = {
             create: vi.fn((initial: UserProps) => ({ boxed: initial })),
@@ -521,8 +515,8 @@ describe("createModule rebuilding on a props-derived key", () => {
             }),
         }
 
-        const AdaptedModule = createModule<UserProps, Boxed>(
-            (props) => ({ root: true, rebuildOn: [props.userId] }),
+        const AdaptedModule = createModuleComponent<UserProps, Boxed>(
+            (props) => ({ rebuildOn: [props.userId] }),
             { adapter, token: TOKEN }
         )
 
@@ -532,7 +526,7 @@ describe("createModule rebuilding on a props-derived key", () => {
 
         function AdaptedProbe() {
             boxed = useResolve(TOKEN)
-            ids.push(useModuleContext().id)
+            ids.push(useModuleContext().module.id)
             return null
         }
 
@@ -540,9 +534,11 @@ describe("createModule rebuilding on a props-derived key", () => {
             const [props, setPropsState] = useState<UserProps>({ userId: "u1", name: "Ann" })
             setLocalProps = setPropsState
             return (
-                <AdaptedModule {...props}>
-                    <AdaptedProbe />
-                </AdaptedModule>
+                <Root>
+                    <AdaptedModule {...props}>
+                        <AdaptedProbe />
+                    </AdaptedModule>
+                </Root>
             )
         }
 
