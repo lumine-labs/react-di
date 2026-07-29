@@ -1,4 +1,4 @@
-import type { ModuleHooks, ModulePhase, ProviderLifecycle } from "./module-lifecycle.types.js"
+import type { ModuleHooks, ProviderLifecycle } from "./module-lifecycle.types.js"
 import type { Module } from "../../module/module.js"
 import type { ModuleRegistry } from "../module-registry/module-registry.provider.js"
 import { Scope } from "../../../container/index.js"
@@ -11,8 +11,11 @@ export class ModuleLifecycle {
     // ========================================
     #initialized = false
     #destroyed = false
+    #claimed = false
+
     #committed = false
     #mounted = false
+
     #moduleHooks: ModuleHooks = {}
     #instances = new Set<ProviderLifecycle>()
 
@@ -23,6 +26,10 @@ export class ModuleLifecycle {
 
     get initialized(): boolean {
         return this.#initialized
+    }
+
+    get claimed(): boolean {
+        return this.#claimed
     }
 
     get mounted(): boolean {
@@ -36,7 +43,6 @@ export class ModuleLifecycle {
         if (this.#initialized || this.#destroyed) return
         this.#moduleHooks = hooks ?? {}
 
-        this.#collectInstances()
         this.#runInitPhase()
 
         this.#initialized = true
@@ -45,35 +51,45 @@ export class ModuleLifecycle {
     mount(): void {
         if (!this.#initialized || this.#destroyed) return
         if (this.#committed) return
-        this.#committed = true
 
         this.registry.attach()
+        this.#committed = true
 
-        // Uniform gating: an App has no parent and mounts its tree at once; a scoped module waits for its
-        // parent, which cascades down through #mountTree once it mounts.
-        const parent = this.module.parent
-        if (!parent || parent.mounted) {
-            this.#mountTree()
+        try {
+            const parent = this.module.parent
+
+            if (!parent || parent.mounted) {
+                this.#mountTree()
+            }
+        } catch (error) {
+            this.registry.detach()
+            this.#committed = false
+
+            throw error
         }
     }
 
     unmount(): void {
         if (!this.#initialized || this.#destroyed) return
+        if (!this.#committed) return
 
-        for (const child of [...this.#children()].reverse()) {
-            child.unmount()
+        const errors: unknown[] = []
+
+        this.#unmountTree(errors)
+
+        if (errors.length > 0) {
+            throw new AggregateError(errors, "Errors occurred while unmounting module subtree")
         }
-
-        if (!this.#mounted) return
-
-        this.#runUnmountPhase()
-        this.#mounted = false
     }
 
     async destroy(): Promise<void> {
         if (this.#destroyed) return
 
         const nodes = this.#claimSubtree()
+
+        for (const node of nodes) {
+            node.#destroyed = true
+        }
 
         for (const node of nodes) {
             // eslint-disable-next-line no-await-in-loop
@@ -111,18 +127,14 @@ export class ModuleLifecycle {
         // Mid-init arrivals are reached by runInitPhase's live walk; only later ones catch up here.
         if (!this.#initialized) return
 
-        try {
-            instance.onModuleInit?.()
-        } catch (error) {
-            this.#reportError("init", error)
-        }
+        instance.onModuleInit?.()
     }
 
     // Cascades
     // ========================================
 
     #mountTree(): void {
-        if (!this.#committed || this.#mounted) return
+        if (this.#mounted) return
 
         this.#runMountPhase()
         this.#mounted = true
@@ -132,18 +144,36 @@ export class ModuleLifecycle {
         }
     }
 
-    /** Mark this subtree destroyed and detach it, returning nodes in destroy order. Synchronous. */
+    #unmountTree(errors: unknown[]): void {
+        if (!this.#mounted) return
+
+        for (const child of [...this.#children()].reverse()) {
+            child.#unmountTree(errors)
+        }
+
+        try {
+            this.#runUnmountPhase(errors)
+        } finally {
+            this.#mounted = false
+        }
+    }
+
+    /** Mark this subtree claimed and detach it, returning nodes in destroy order (children-first). Synchronous. */
     #claimSubtree(): ModuleLifecycle[] {
+        if (this.#claimed) return []
+
         const nodes: ModuleLifecycle[] = []
 
         for (const child of [...this.#children()].reverse()) {
             nodes.push(...child.#claimSubtree())
         }
 
-        this.#destroyed = true
+        this.#claimed = true
         this.registry.detach()
-        nodes.push(this)
+        // `#committed` means "attach() has been called", so it may only go false behind a detach.
+        this.#committed = false
 
+        nodes.push(this)
         return nodes
     }
 
@@ -159,86 +189,57 @@ export class ModuleLifecycle {
     // Phase runners
     // ========================================
 
-    /** One try for the whole phase: a failure here means a half-built module, so the rest is skipped. */
     #runInitPhase(): void {
-        try {
-            this.#moduleHooks.onModuleInit?.(this.module.container)
-            for (const instance of this.#instances) {
-                instance.onModuleInit?.()
-            }
-        } catch (error) {
-            this.#reportError("init", error)
+        this.#collectInstances()
+        this.#moduleHooks.onModuleInit?.(this.module.container)
+        for (const instance of this.#instances) {
+            instance.onModuleInit?.()
         }
     }
 
     #runMountPhase(): void {
-        try {
-            this.#moduleHooks.onModuleMount?.(this.module.container)
-        } catch (error) {
-            this.#reportError("mount", error)
-        }
-
+        this.#moduleHooks.onModuleMount?.(this.module.container)
         for (const instance of this.#instances) {
-            try {
-                instance.onModuleMount?.()
-            } catch (error) {
-                this.#reportError("mount", error)
-            }
+            instance.onModuleMount?.()
         }
     }
 
-    #runUnmountPhase(): void {
+    #runUnmountPhase(errors: unknown[]): void {
         for (const instance of [...this.#instances].reverse()) {
             try {
                 instance.onModuleUnmount?.()
             } catch (error) {
-                this.#reportError("unmount", error)
+                errors.push(error)
             }
         }
 
         try {
             this.#moduleHooks.onModuleUnmount?.(this.module.container)
         } catch (error) {
-            this.#reportError("unmount", error)
+            errors.push(error)
         }
     }
 
     async #runDestroyPhase(): Promise<void> {
-        for (const instance of [...this.#instances].reverse()) {
-            try {
-                // eslint-disable-next-line no-await-in-loop
-                await instance.onModuleDestroy?.()
-            } catch (error) {
-                this.#reportError("destroy", error)
-            }
-        }
-
         try {
-            await this.#moduleHooks.onModuleDestroy?.(this.module.container)
-        } catch (error) {
-            this.#reportError("destroy", error)
-        }
-    }
+            for (const instance of [...this.#instances].reverse()) {
+                try {
+                    // eslint-disable-next-line no-await-in-loop
+                    await instance.onModuleDestroy?.()
+                } catch (error) {
+                    console.error("module.destroy", error)
+                }
+            }
 
-    /**
-     * A declared `onModuleError` takes ownership: it is called and the error goes no further, so the phase
-     * carries on with the remaining hooks. Without one the default differs by phase — the first three throw
-     * into a React render or effect, which surfaces them, while destroy is awaited by nobody and would only
-     * produce an unhandled rejection, so it is logged instead.
-     */
-    #reportError(phase: ModulePhase, error: unknown): void {
-        const handler = this.#moduleHooks.onModuleError
-        if (handler) {
-            handler(phase, error)
-            return
+            try {
+                await this.#moduleHooks.onModuleDestroy?.(this.module.container)
+            } catch (error) {
+                console.error("module.destroy", error)
+            }
+        } finally {
+            this.#instances.clear()
+            this.#moduleHooks = {}
         }
-
-        if (phase === "destroy") {
-            console.error(`module.${phase}`, error)
-            return
-        }
-
-        throw error
     }
 }
 

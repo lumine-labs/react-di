@@ -24,10 +24,8 @@ export type { ModuleParams } from "./core/module/module.js"
 // ========================================
 
 export type {
-    ModuleErrorHook,
     ModuleHook,
     ModuleHooks,
-    ModulePhase,
     ProviderLifecycle,
 } from "./core/providers/module-lifecycle/module-lifecycle.types.js"
 

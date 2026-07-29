@@ -69,11 +69,9 @@ import type {
     FactoryProvider,
     InjectionToken,
     ModuleContextValue,
-    ModuleErrorHook,
     ModuleHook,
     ModuleHooks,
     ModuleParams,
-    ModulePhase,
     ModuleProviderProps,
     OptionalFactoryDependency,
     PropsAdapter,
@@ -501,12 +499,6 @@ const UserModule = createModuleComponent<UserProps>({
         type _ModuleInitContainer = Expect<Equals<typeof container, Container>>
         void container
     },
-    onModuleError: (phase, error) => {
-        type _ModuleErrorPhase = Expect<Equals<typeof phase, ModulePhase>>
-        type _ModuleErrorPhaseValues = Expect<Equals<ModulePhase, "init" | "mount" | "unmount" | "destroy">>
-        type _ModuleErrorReason = Expect<Equals<typeof error, unknown>>
-        void error
-    },
 })
 type _UserModuleProps = Expect<Equals<typeof UserModule, ComponentType<UserProps & { children?: ReactNode }>>>
 type _UserModuleIsNotAny = Expect<Not<IsAny<typeof UserModule>>>
@@ -562,16 +554,9 @@ const moduleHook: ModuleHook = (container) => {
     void container
 }
 
-const moduleErrorHook: ModuleErrorHook = (phase, error) => {
-    type _ErrorHookPhase = Expect<Equals<typeof phase, ModulePhase>>
-    void phase
-    void error
-}
-
 const moduleHooks: ModuleHooks = {
     onModuleInit: moduleHook,
     onModuleDestroy: moduleHook,
-    onModuleError: moduleErrorHook,
 }
 
 // Params negative space — the modes are dead, so the keys that pinned them must stay rejected.
@@ -759,7 +744,6 @@ function RebuildingModule({ children }: { children?: ReactNode }): ReactElement 
             providers={[ApiClient, valueProvider]}
             rebuildOn={[version, tenant]}
             onModuleDestroy={moduleHook}
-            onModuleError={moduleErrorHook}
         >
             <button
                 type="button"
@@ -1028,10 +1012,8 @@ type PublicTypeSurface = [
     Provider,
     ValueProvider<AppConfig>,
     ModuleParams,
-    ModuleErrorHook,
     ModuleHook,
     ModuleHooks,
-    ModulePhase,
     ProviderLifecycle,
     PropsAdapter<UserProps, UserVM>,
     ModuleContextValue,
@@ -1047,8 +1029,9 @@ type PublicTypeSurface = [
 // 31 -> 26 on the 0.5.0 rework: `FactoryModuleParams`, `ModuleResolution`, `ModuleResolutionParams`,
 // `RootModuleParams` and `ScopedModuleParams` left with the modes, and `ModuleMetadataInit` /
 // `ModuleMetadataProvider` with the ModuleMetadata concept; `ModuleParams` and `AppProviderProps`
-// arrived with the App/Module classes.
-type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 26>>
+// arrived with the App/Module classes. 26 -> 24 when `onModuleError` was removed, taking
+// `ModuleErrorHook` and `ModulePhase` with it.
+type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 24>>
 
 // Keep the module-scope constants that exist only to be typechecked from being flagged as dead by a
 // future `noUnusedLocals`, and give the file a single exported value to hang everything on.

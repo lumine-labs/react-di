@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config"
+import { defaultExclude, defineConfig } from "vitest/config"
 
 // eslint-disable-next-line import/no-default-export
 export default defineConfig({
@@ -7,6 +7,8 @@ export default defineConfig({
         globals: true,
         setupFiles: ["./tests/setup/setupTests.ts"],
         include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+        // tests/memory needs --expose-gc and a single fork; it has its own config and `npm run test:memory`.
+        exclude: [...defaultExclude, "tests/memory/**"],
         coverage: {
             provider: "v8",
             reporter: ["text", "html", "lcov"],

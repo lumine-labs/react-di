@@ -1,6 +1,6 @@
 import { Container, type InjectionToken, type Provider, type Scope } from "../../container/index.js"
 
-import type { ModuleErrorHook, ModuleHook, ModuleHooks } from "../providers/module-lifecycle/module-lifecycle.types.js"
+import type { ModuleHook, ModuleHooks } from "../providers/module-lifecycle/module-lifecycle.types.js"
 import { ModuleLifecycle } from "../providers/module-lifecycle/module-lifecycle.provider.js"
 import { ModuleRegistry } from "../providers/module-registry/module-registry.provider.js"
 import { Resolver } from "../providers/resolver/resolver.provider.js"
@@ -17,7 +17,6 @@ export type ModuleParams = {
     onModuleMount?: ModuleHook
     onModuleUnmount?: ModuleHook
     onModuleDestroy?: ModuleHook
-    onModuleError?: ModuleErrorHook
 }
 
 /** Declared shape of a registered provider — what lifecycle collection reads, not the provider itself. */
@@ -69,14 +68,8 @@ export class Module {
         this.container.register(user)
         this.#setProviders([...system, ...user])
 
-        const { onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy, onModuleError } = params ?? {}
-        this.#hooks = {
-            onModuleInit,
-            onModuleMount,
-            onModuleUnmount,
-            onModuleDestroy,
-            ...(onModuleError ? { onModuleError } : {}),
-        }
+        const { onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy } = params ?? {}
+        this.#hooks = { onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy }
     }
 
     // Phases
@@ -100,6 +93,10 @@ export class Module {
 
     get initialized(): boolean {
         return this.#lifecycle.initialized
+    }
+
+    get claimed(): boolean {
+        return this.#lifecycle.claimed
     }
 
     get mounted(): boolean {

@@ -3,7 +3,7 @@ import { useEvent, useIsomorphicLayoutEffect, useScheduleLayoutEffect } from "@l
 
 import type { Container } from "../../container/index.js"
 import { Module, type ModuleParams } from "../../core/module/module.js"
-import type { ModuleHooks, ModulePhase } from "../../core/providers/module-lifecycle/module-lifecycle.types.js"
+import type { ModuleHooks } from "../../core/providers/module-lifecycle/module-lifecycle.types.js"
 import { ModuleContext } from "../context/ModuleContext.js"
 
 // ModuleProvider
@@ -25,11 +25,6 @@ export function ModuleProvider({ children, rebuildOn, ...params }: ModuleProvide
 // useModule (internal)
 // ========================================
 
-/**
- * The one blessed boundary implementation, internal to ModuleProvider. Owns all four phases: constructs and
- * inits the module in state (zero observable window), mounts on effect, unmounts + destroys on cleanup, and
- * rebuilds — recreating the instance — on parent change or a rebuildOn diff.
- */
 function useModule(params: ModuleParams, rebuildOn?: unknown[]): { module: Module; rebuild: () => void } {
     const parent = useContext(ModuleContext)?.module ?? null
 
@@ -43,9 +38,11 @@ function useModule(params: ModuleParams, rebuildOn?: unknown[]): { module: Modul
         module.mount()
 
         return () => {
-            module.unmount()
-            // Nothing upstream can await this. destroy() only rejects if a user onModuleError throws.
-            void module.destroy().catch((error) => console.error("module.onModuleError", error))
+            try {
+                module.unmount()
+            } finally {
+                void module.destroy()
+            }
         }
     }, [module])
 
@@ -98,17 +95,8 @@ function useModuleHooks(params: ModuleParams): ModuleHooks {
     const onModuleMount = useEvent((container: Container) => params.onModuleMount?.(container))
     const onModuleUnmount = useEvent((container: Container) => params.onModuleUnmount?.(container))
     const onModuleDestroy = useEvent((container: Container) => params.onModuleDestroy?.(container))
-    const onModuleError = useEvent((phase: ModulePhase, error: unknown) => params.onModuleError?.(phase, error))
 
-    // onModuleError is the exception: its PRESENCE decides whether a phase throws, so an always-present
-    // wrapper would silently make every module swallow its own errors.
-    return {
-        onModuleInit,
-        onModuleMount,
-        onModuleUnmount,
-        onModuleDestroy,
-        ...(params.onModuleError ? { onModuleError } : {}),
-    }
+    return { onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy }
 }
 
 // Helpers
