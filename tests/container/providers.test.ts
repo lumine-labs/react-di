@@ -1,3 +1,4 @@
+import { injectable as inversifyInjectable } from "inversify"
 import { describe, expect, it, vi } from "vitest"
 
 import { Container, Inject, Injectable, Scope, decorate } from "../../src/container/index.js"
@@ -219,6 +220,121 @@ describe("provider shapes", () => {
     })
 })
 
+describe("useClass without `provide`", () => {
+    it("registers the class as its own token, singleton by default", () => {
+        const built: string[] = []
+        class Service {
+            constructor() {
+                built.push("Service")
+            }
+        }
+        injectableClass(Service)
+
+        const container = new Container()
+        container.register({ useClass: Service })
+
+        const first = container.resolve(Service)
+        const second = container.resolve(Service)
+
+        expect(first).toBeInstanceOf(Service)
+        expect(second).toBe(first)
+        expect(built).toEqual(["Service"])
+    })
+
+    it("honours Scope.Transient — a fresh instance per resolve", () => {
+        const built: string[] = []
+        class Service {
+            constructor() {
+                built.push("built")
+            }
+        }
+        injectableClass(Service)
+
+        const container = new Container()
+        container.register({ useClass: Service, scope: Scope.Transient })
+
+        const first = container.resolve(Service)
+        const second = container.resolve(Service)
+
+        expect(first).not.toBe(second)
+        expect(built).toHaveLength(2)
+    })
+
+    it("honours Scope.Singleton written out explicitly", () => {
+        class Service {}
+        injectableClass(Service)
+
+        const container = new Container()
+        container.register({ useClass: Service, scope: Scope.Singleton })
+
+        expect(container.resolve(Service)).toBe(container.resolve(Service))
+    })
+
+    it("binds nothing but the class — no second token appears", () => {
+        class Service {}
+        injectableClass(Service)
+        const OTHER = Symbol("other")
+
+        const container = new Container()
+        container.register({ useClass: Service })
+
+        expect(container.isRegistered(Service)).toBe(true)
+        expect(container.isRegistered(OTHER)).toBe(false)
+    })
+
+    it("is interchangeable with the equivalent provide + useClass form, `lazy` included", () => {
+        const built: string[] = []
+        class Service {
+            constructor() {
+                built.push("built")
+            }
+        }
+        injectableClass(Service)
+
+        // `lazy` is a module-level instruction — the container has no eager pass, so the two forms must
+        // produce indistinguishable bindings here.
+        const shorthand = new Container()
+        shorthand.register({ useClass: Service, lazy: true })
+        const longhand = new Container()
+        longhand.register({ provide: Service, useClass: Service, lazy: true })
+
+        expect(built).toEqual([])
+
+        const fromShorthand = shorthand.resolve(Service)
+        const fromLonghand = longhand.resolve(Service)
+
+        expect(fromShorthand).toBeInstanceOf(Service)
+        expect(fromLonghand).toBeInstanceOf(Service)
+        expect(fromShorthand).not.toBe(fromLonghand)
+        expect(shorthand.resolve(Service)).toBe(fromShorthand)
+        expect(built).toHaveLength(2)
+    })
+
+    it("takes part in a fork the way any class binding does", () => {
+        class Service {}
+        injectableClass(Service)
+
+        const parent = new Container()
+        parent.register({ useClass: Service })
+        const child = parent.fork()
+
+        expect(child.resolve(Service)).toBe(parent.resolve(Service))
+        expect(child.isRegistered(Service, false)).toBe(false)
+    })
+
+    it("is observable, like every other own binding", () => {
+        class Service {}
+        injectableClass(Service)
+        const seen: unknown[] = []
+
+        const container = new Container()
+        container.register({ useClass: Service })
+        container.onResolution(Service, (instance) => seen.push(instance))
+
+        expect(seen).toEqual([container.resolve(Service)])
+    })
+})
+
 describe("scopes", () => {
     it("defaults a class provider to singleton", () => {
         const built: number[] = []
@@ -315,6 +431,28 @@ describe("scopes", () => {
         expect(Object.keys(Scope).sort()).toEqual(["Singleton", "Transient"])
         expect([Scope.Singleton, Scope.Transient]).toEqual(["singleton", "transient"])
     })
+
+    // Our `Injectable` is parameterless, so no consumer can write `@Injectable("Transient")` — but the raw
+    // inversify decorator is one import away, and this pins what happens when someone smuggles it in.
+    // `register()` sets the binding scope on EVERY path (`#scoped`, defaulting to Singleton), and an
+    // explicit binding scope overrides the decorator's default, so the decorator channel is inert: the
+    // registration decides, always. That is why dropping the parameter costs nothing — it never did
+    // anything — and why the class stays free to be a singleton here and transient in the next module.
+    it("ignores a scope smuggled in through the raw inversify decorator", () => {
+        const built: string[] = []
+        class Service {
+            constructor() {
+                built.push("built")
+            }
+        }
+        decorate(inversifyInjectable("Transient"), Service)
+
+        const container = new Container()
+        container.register({ useClass: Service })
+
+        expect(container.resolve(Service)).toBe(container.resolve(Service))
+        expect(built).toHaveLength(1)
+    })
 })
 
 describe("invalid providers", () => {
@@ -362,5 +500,139 @@ describe("invalid providers", () => {
         const container = new Container()
 
         expect(() => container.register({ provide: Widget } as unknown as Provider)).toThrow(/Provider for Widget/)
+    })
+
+    /**
+     * Shape before duplicate. `#assertFree` used to run first for every object form, so a malformed
+     * provider aimed at a taken token reported the collision and said nothing about the malformation.
+     * The order is now the other way round, and this pins it: you hear about the shape you got wrong.
+     */
+    it("reports the shape, not the collision, when a malformed provider targets a taken token", () => {
+        const TOKEN = Symbol("taken")
+        const container = new Container()
+        container.register({ provide: TOKEN, useValue: 1 })
+
+        expect(() => container.register({ provide: TOKEN } as unknown as Provider)).toThrow(/has no recognised form/)
+        expect(() => container.register({ provide: TOKEN } as unknown as Provider)).not.toThrow(
+            /already registered/
+        )
+    })
+})
+
+// Two implementation keys
+// ========================================
+//
+// Distinct from "no recognised form": the object IS a recognisable provider, it just names two
+// implementations. It gets its own message because it is the load-bearing runtime guard for the case the
+// type layer cannot catch — `exactOptionalPropertyTypes` is what rejects an explicit `useFactory:
+// undefined` sibling, and the package's own tsconfig does not set it, nor do most consuming apps. With
+// EOPT off, `{ useClass: X, useFactory: undefined }` typechecks clean and this throw is the only thing
+// standing between the author and a silently-wrong registration.
+
+describe("mixed implementation keys", () => {
+    it("rejects an explicit-undefined sibling key with a message naming both keys", () => {
+        class Service {}
+        injectableClass(Service)
+        const container = new Container()
+
+        expect(() => container.register({ useClass: Service, useFactory: undefined } as Provider)).toThrow(
+            /^Provider mixes 2 implementation keys \(useClass, useFactory\) — a provider declares exactly one of useClass, useValue, useFactory or useExisting\. Note that an explicit `undefined` still counts as declared\.$/
+        )
+    })
+
+    it("names the token when there is one", () => {
+        const TOKEN = Symbol("mixed")
+        const container = new Container()
+
+        expect(() =>
+            container.register({ provide: TOKEN, useValue: 1, useExisting: undefined } as Provider)
+        ).toThrow(/^Provider for mixed mixes 2 implementation keys \(useExisting, useValue\)/)
+    })
+
+    it("counts every key present, and lists them in USE_KEYS order", () => {
+        class Service {}
+        injectableClass(Service)
+        const container = new Container()
+
+        expect(() =>
+            container.register({
+                provide: Service,
+                useClass: Service,
+                useFactory: undefined,
+                useExisting: undefined,
+                useValue: undefined,
+            } as Provider)
+        ).toThrow(/mixes 4 implementation keys \(useClass, useFactory, useExisting, useValue\)/)
+    })
+
+    it("does not reach the mixed-key message when only one key is present, undefined or not", () => {
+        const TOKEN = Symbol("single")
+        const container = new Container()
+
+        // `{ provide, useValue: undefined }` is a legitimate registration, not a mixed one.
+        expect(() => container.register({ provide: TOKEN, useValue: undefined })).not.toThrow()
+        expect(container.isRegistered(TOKEN)).toBe(true)
+        expect(container.resolve(TOKEN)).toBeUndefined()
+    })
+})
+
+// `provide` on the token-less forms
+// ========================================
+//
+// Only `useClass` can go without `provide`, because a class IS a token. The other three have nothing to
+// derive one from, so omitting it used to bind them under `undefined` — resolvable through
+// `resolve(undefined)`, and a second such provider collided on a token nobody wrote. The type layer
+// already rejects all three at any strictness; this is the runtime saying the same thing.
+
+describe("a token-less form without `provide`", () => {
+    it("rejects useFactory", () => {
+        const container = new Container()
+
+        expect(() => container.register({ useFactory: () => 1 } as unknown as Provider)).toThrow(
+            /^Provider with useFactory requires `provide` — only useClass may register under its own token, because a class is one\. Give this provider an explicit token\.$/
+        )
+    })
+
+    it("rejects useValue", () => {
+        const container = new Container()
+
+        expect(() => container.register({ useValue: 1 } as unknown as Provider)).toThrow(
+            /^Provider with useValue requires `provide`/
+        )
+    })
+
+    it("rejects useExisting", () => {
+        class Service {}
+        injectableClass(Service)
+        const container = new Container()
+        container.register(Service)
+
+        expect(() => container.register({ useExisting: Service } as unknown as Provider)).toThrow(
+            /^Provider with useExisting requires `provide`/
+        )
+    })
+
+    it("rejects an explicit `provide: undefined` the same way", () => {
+        const container = new Container()
+
+        expect(() => container.register({ provide: undefined, useValue: 1 } as unknown as Provider)).toThrow(
+            /^Provider with useValue requires `provide`/
+        )
+    })
+
+    it("leaves nothing bound under `undefined`", () => {
+        const container = new Container()
+
+        expect(() => container.register({ useFactory: () => 1 } as unknown as Provider)).toThrow()
+        expect(container.isRegistered(undefined as never)).toBe(false)
+    })
+
+    it("still allows useClass to omit it — that is the one form with a token to derive", () => {
+        class Service {}
+        injectableClass(Service)
+        const container = new Container()
+
+        expect(() => container.register({ useClass: Service })).not.toThrow()
+        expect(container.isRegistered(Service)).toBe(true)
     })
 })

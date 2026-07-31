@@ -180,6 +180,41 @@ describe("lazy", () => {
         expect(service.counts).toEqual({ init: 0, mount: 0, unmount: 0, destroy: 0 })
     })
 
+    it("behaves identically declared as `{ useClass: X, lazy: true }`", async () => {
+        const log: string[] = []
+        const service = tracked(log, "L")
+        const module = makeApp({ providers: [{ useClass: service, lazy: true } as Provider] })
+
+        expect(log).toEqual([])
+
+        module.mount()
+        expect(log).toEqual([])
+
+        module.container.resolve(service as never)
+        expect(log).toEqual(["L:ctor", "L:init"])
+        expect(service.counts.mount).toBe(0)
+
+        module.unmount()
+        expect(phase(log, "unmount")).toEqual(["L:unmount"])
+
+        await module.destroy()
+        expect(service.counts).toEqual({ init: 1, mount: 0, unmount: 1, destroy: 1 })
+    })
+
+    it("stays out of the lifecycle when `{ useClass: X }` is also transient", async () => {
+        const log: string[] = []
+        const service = tracked(log, "T")
+        const module = makeApp({ providers: [{ useClass: service, scope: Scope.Transient, lazy: true } as Provider] })
+        module.mount()
+        module.container.resolve(service as never)
+
+        module.unmount()
+        await module.destroy()
+
+        expect(service.counts).toEqual({ init: 0, mount: 0, unmount: 0, destroy: 0 })
+        expect(log).toEqual(["T:ctor"])
+    })
+
     it("does not delay an eager sibling", () => {
         const log: string[] = []
         const eager = tracked(log, "E")

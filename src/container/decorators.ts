@@ -5,9 +5,16 @@ import type { InjectionToken } from "./container.types.js"
 // Decorator surface
 // ========================================
 
-export const Injectable = injectable
+export function Injectable(): ClassDecorator {
+    return injectable()
+}
+
 export const Inject = inject
-export const InjectAll = multiInject
+
+export function InjectAll(token: Parameters<typeof multiInject>[0]): ReturnType<typeof multiInject> {
+    return multiInject(token, { chained: true })
+}
+
 export const Optional = optional
 
 export { decorate }

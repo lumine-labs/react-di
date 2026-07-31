@@ -6,6 +6,9 @@
         "moduleResolution": "NodeNext",
 
         "noEmit": false,
+        // Without this, `tsc` writes a complete, well-formed `dist` out of source that does not compile —
+        // and every downstream gate then passes against declarations nobody could have built.
+        "noEmitOnError": true,
         "declaration": true,
         "declarationMap": true,
         "sourceMap": true,

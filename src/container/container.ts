@@ -7,6 +7,11 @@ import {
     type InjectionToken,
     type OptionalFactoryDependency,
     type Provider,
+    type ClassProvider,
+    type ValueProvider,
+    type FactoryProvider,
+    type ExistingProvider,
+    USE_KEYS,
 } from "./container.types.js"
 import { describeToken } from "../shared/describeToken.js"
 
@@ -38,51 +43,88 @@ export class Container {
             return
         }
 
+        // If provider is a class, bind it as self-scoped singleton
         if (typeof provider === "function") {
             this.#assertFree(provider)
             this.#bindClass(provider, provider, Scope.Singleton)
             return
         }
 
+        // Check illegal provider forms
         if (provider === null || typeof provider !== "object") {
             throw new Error(invalidProvider(provider))
         }
 
-        this.#assertFree(provider.provide)
-
-        if ("useValue" in provider) {
-            const binding = this.#inversify.bind(this.#id(provider.provide)).toConstantValue(provider.useValue)
-            this.#bindings.set(provider.provide, binding)
-            return
+        // Exactly one implementation key. Two distinct failures, two distinct messages: nothing recognisable
+        // is a different mistake from naming two implementations, and only the second can name the keys.
+        const presentUseKeys = USE_KEYS.filter((key) => key in provider)
+        if (presentUseKeys.length > 1) {
+            throw new Error(mixedImplementationKeys(provider, presentUseKeys))
         }
-
-        if ("useExisting" in provider) {
-            this.#inversify.bind(this.#id(provider.provide)).toService(this.#id(provider.useExisting))
-            return
+        if (presentUseKeys.length === 0) {
+            throw new Error(invalidProvider(provider))
         }
+        const [useKey] = presentUseKeys
 
-        const scope = provider.scope ?? Scope.Singleton
+        switch (useKey) {
+            case "useClass": {
+                const p = provider as ClassProvider
 
-        if ("useClass" in provider) {
-            this.#bindClass(provider.provide, provider.useClass, scope)
-            return
+                if (typeof p.useClass !== "function") {
+                    throw new Error(invalidProvider(provider))
+                }
+
+                const token = p.provide ?? p.useClass
+                this.#assertFree(token)
+                this.#bindClass(token, p.useClass, p.scope ?? Scope.Singleton)
+                return
+            }
+            case "useFactory": {
+                const p = provider as FactoryProvider
+
+                if (typeof p.useFactory !== "function") {
+                    throw new Error(invalidProvider(provider))
+                }
+
+                this.#assertProvide(p.provide, useKey)
+                this.#assertFree(p.provide)
+
+                const factory = p.useFactory
+                const dependencies = p.inject
+
+                const binding = this.#inversify
+                    .bind(this.#id(p.provide))
+                    .toDynamicValue(() => factory(...this.#resolveDependencies(dependencies)))
+                const activatable = this.#scoped(binding, p.scope ?? Scope.Singleton)
+                this.#bindings.set(p.provide, activatable)
+
+                return
+            }
+            case "useValue": {
+                const p = provider as ValueProvider
+
+                this.#assertProvide(p.provide, useKey)
+                this.#assertFree(p.provide)
+
+                const binding = this.#inversify.bind(this.#id(p.provide)).toConstantValue(p.useValue)
+                this.#bindings.set(p.provide, binding)
+                return
+            }
+            case "useExisting": {
+                const p = provider as ExistingProvider
+
+                if (p.useExisting === undefined) {
+                    throw new Error(invalidProvider(provider))
+                }
+
+                this.#assertProvide(p.provide, useKey)
+                this.#assertFree(p.provide)
+                this.#inversify.bind(this.#id(p.provide)).toService(this.#id(p.useExisting))
+                return
+            }
+            default:
+                throw new Error(invalidProvider(provider))
         }
-
-        if ("useFactory" in provider) {
-            const factory = provider.useFactory
-
-            const dependencies = provider.inject
-
-            const binding = this.#inversify
-                .bind(this.#id(provider.provide))
-                .toDynamicValue(() => factory(...this.#resolveDependencies(dependencies)))
-            const activatable = this.#scoped(binding, scope)
-            this.#bindings.set(provider.provide, activatable)
-
-            return
-        }
-
-        throw new Error(invalidProvider(provider))
     }
 
     isRegistered(token: InjectionToken<unknown>, recursive = true): boolean {
@@ -145,6 +187,21 @@ export class Container {
         return token
     }
 
+    /**
+     * `useClass` derives its token from the implementation when `provide` is omitted; nothing else can.
+     * Without this, the three token-less forms bind under `undefined` and stay resolvable through it —
+     * a second one then collides on a token nobody wrote.
+     *
+     * `=== undefined` rather than `"provide" in provider`: an explicit `provide: undefined` is the same
+     * mistake, and `useClass` already treats it as absent through its own `??`. No token type is `undefined`,
+     * so nothing legitimate is rejected here.
+     */
+    #assertProvide(token: InjectionToken<unknown> | undefined, useKey: string): void {
+        if (token === undefined) {
+            throw new Error(missingProvide(useKey))
+        }
+    }
+
     #assertFree(token: InjectionToken<unknown>): void {
         if (this.#inversify.isCurrentBound(this.#id(token))) {
             throw new Error(alreadyRegistered(token))
@@ -189,19 +246,29 @@ function isOptionalDependency(dependency: FactoryDependency): dependency is Opti
 // Errors
 // ========================================
 
-function invalidProvider(provider: never): string {
+/** How a provider is named in an error: by its token when it has one, else by what it is. */
+function providerSubject(provider: unknown): string {
     const candidate = provider as { provide?: InjectionToken<unknown> } | null | undefined
     const isObject = candidate !== null && typeof candidate === "object"
     const provide = isObject ? candidate.provide : undefined
 
-    const subject =
-        provide !== undefined
-            ? `Provider for ${describeToken(provide)}`
-            : isObject
-              ? "Provider"
-              : `Provider ${String(provider)}`
+    return provide !== undefined
+        ? `Provider for ${describeToken(provide)}`
+        : isObject
+          ? "Provider"
+          : `Provider ${String(provider)}`
+}
 
-    return `${subject} has no recognised form — expected a class, or an object with one of useClass, useValue, useFactory or useExisting.`
+function invalidProvider(provider: unknown): string {
+    return `${providerSubject(provider)} has no recognised form — expected a class, or an object with one of useClass, useValue, useFactory or useExisting.`
+}
+
+function mixedImplementationKeys(provider: unknown, keys: readonly string[]): string {
+    return `${providerSubject(provider)} mixes ${keys.length} implementation keys (${keys.join(", ")}) — a provider declares exactly one of useClass, useValue, useFactory or useExisting. Note that an explicit \`undefined\` still counts as declared.`
+}
+
+function missingProvide(useKey: string): string {
+    return `Provider with ${useKey} requires \`provide\` — only useClass may register under its own token, because a class is one. Give this provider an explicit token.`
 }
 
 function alreadyRegistered(token: InjectionToken<unknown>): string {

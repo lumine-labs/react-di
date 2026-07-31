@@ -182,10 +182,13 @@ describe("onResolution", () => {
     })
 
     /**
-     * Inherited downward, and by token rather than by binding: an ancestor's listener also fires for a
-     * shadowing binding it does not own, as long as the resolution happens at or below the listener's
-     * container. Documented rather than endorsed — see the note in the report; a module that shadows an
-     * ancestor's token gets its instance reported to the ancestor too.
+     * Listeners ride on the BINDING, not on the container. A descendant that shadows a token owns a
+     * different binding, so the ancestor's listener never fires for it: each container hears only about
+     * instances its own binding produced, whichever container the resolution was requested from.
+     *
+     * That is what makes shadowing safe for the lifecycle. A container-level listener would be inherited
+     * downward and matched by token, so a module shadowing an ancestor's token would get its instance
+     * adopted by the ancestor's lifecycle too — destroyed on the ancestor's schedule, not its own.
      */
     it("does not fire an ancestor's listener for a shadowing binding resolved below it", () => {
         const TOKEN = Symbol("shadowed")

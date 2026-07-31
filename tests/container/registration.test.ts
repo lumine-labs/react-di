@@ -71,6 +71,47 @@ describe("duplicate registration", () => {
         expect(() => container.register({ provide: ALIAS, useExisting: TARGET })).toThrow(ALREADY_REGISTERED)
     })
 
+    it("throws for the provide-less useClass shorthand after the bare constructor", () => {
+        class Service {}
+        injectableClass(Service)
+
+        const container = new Container()
+        container.register(Service)
+
+        expect(() => container.register({ useClass: Service })).toThrow(ALREADY_REGISTERED)
+        expect(() => container.register({ useClass: Service })).toThrow(/Token Service is already registered/)
+    })
+
+    it("throws for the provide-less useClass shorthand after the equivalent provide + useClass", () => {
+        class Service {}
+        injectableClass(Service)
+
+        const container = new Container()
+        container.register({ provide: Service, useClass: Service })
+
+        expect(() => container.register({ useClass: Service, scope: Scope.Transient })).toThrow(ALREADY_REGISTERED)
+    })
+
+    it("throws for anything registering the class again after the provide-less useClass shorthand", () => {
+        class Service {}
+        injectableClass(Service)
+
+        const shapes: Provider[] = [
+            Service,
+            { useClass: Service },
+            { useClass: Service, lazy: true },
+            { provide: Service, useClass: Service },
+            { provide: Service, useValue: "value" },
+        ]
+
+        for (const shape of shapes) {
+            const container = new Container()
+            container.register({ useClass: Service })
+
+            expect(() => container.register(shape)).toThrow(ALREADY_REGISTERED)
+        }
+    })
+
     it("throws across differing shapes for the same token", () => {
         class Service {}
         injectableClass(Service)

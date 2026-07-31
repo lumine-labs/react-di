@@ -612,10 +612,12 @@ describe("constructor dependency chains", () => {
 // Circular dependencies
 // ========================================
 //
-// Pinned behaviour, measured rather than designed. Constructor injection cannot close a cycle: inversify
-// detects it and throws, and nothing in this library intercepts that. The tests below fix the exact error
-// text, fix where it surfaces when a module is involved, and record that `LazyToken` — the only deferral
-// primitive the package exports — does NOT help.
+// UNSUPPORTED BY DESIGN, permanently. A constructor cycle is a structural mistake in the consuming app, not
+// a case the container is expected to absorb: inversify detects it and throws, this library deliberately
+// does not intercept that, and no Delay-style escape hatch will be built. Throwing loudly at init IS the
+// contract, so the tests below pin the exact error text and where it surfaces. `LazyToken` exists solely
+// for the TDZ case (a token whose class is declared later in the file) — it is not, and will not become, a
+// cycle-breaker. For the rare legitimate cycle, factory-thunk indirection is the documented workaround.
 
 describe("circular dependencies", () => {
     /** Alpha ↔ Beta by constructor injection, optionally deferred through `LazyToken`. */
@@ -685,34 +687,18 @@ describe("circular dependencies", () => {
     })
 
     /**
-     * KNOWN DEFECT — `LazyToken` is not a circular-dependency escape hatch.
-     *
-     * It wraps inversify's `LazyServiceIdentifier`, which defers evaluation of the IDENTIFIER, not
-     * construction of the instance. That buys a forward reference (pinned two tests below); it does nothing
-     * for a real constructor cycle, which throws the identical error. The package therefore ships no working
-     * escape hatch for A ↔ B and documents none — factory indirection is the only route, and it is the
-     * caller's to invent.
-     *
-     * The expectation written here is the one a reader of the export list would expect to hold; `it.fails`
-     * records that it does not.
+     * `LazyToken` is not a cycle-breaker and is not meant to be. It wraps inversify's
+     * `LazyServiceIdentifier`, which defers evaluation of the IDENTIFIER, not construction of the instance —
+     * so a cycle wrapped in it throws the identical error. Pinned so nobody reaches for it as an escape
+     * hatch on the strength of the name.
      */
-    it.fails("KNOWN DEFECT: LazyToken should break an Alpha <-> Beta constructor cycle, and does not", () => {
-        const { container, Alpha, Beta } = cycle(true)
-
-        const alpha = container.resolve(Alpha) as { beta: unknown }
-        const beta = container.resolve(Beta) as { alpha: unknown }
-
-        expect(alpha.beta).toBe(beta)
-        expect(beta.alpha).toBe(alpha)
-    })
-
-    it("pins what LazyToken throws on a cycle — the identical message", () => {
+    it("changes nothing about a cycle — LazyToken throws the identical message", () => {
         const { container, Alpha } = cycle(true)
 
         expect(() => container.resolve(Alpha)).toThrowError("Circular dependency found: Alpha -> Beta -> Alpha")
     })
 
-    it("pins what LazyToken does buy: a token still in its TDZ at decoration time", () => {
+    it("pins what LazyToken is actually for: a token still in its TDZ at decoration time", () => {
         class Consumer {
             constructor(readonly later: unknown) {}
         }
@@ -731,7 +717,7 @@ describe("circular dependencies", () => {
         expect(container.resolve<{ later: unknown }>(Consumer).later).toBeInstanceOf(Later)
     })
 
-    it("closes a cycle through factory indirection — the only route that works today", () => {
+    it("closes a cycle through factory indirection — the documented workaround", () => {
         const GET_BETA = Symbol.for("tests.torture.get-beta")
 
         class Alpha {
@@ -765,6 +751,33 @@ describe("circular dependencies", () => {
 
         expect(beta.alpha).toBe(alpha)
         expect(alpha.getBeta()).toBe(beta)
+    })
+})
+
+// Construction failures during the eager pass
+// ========================================
+//
+// The circular case is one instance of the general rule, pinned here generally: a provider whose
+// construction throws takes the same route out. `ModuleLifecycle#collectInstances` runs the eager pass
+// before any phase runner, so the original error propagates out of `init()` unwrapped and the module is
+// left constructed but un-initialized.
+
+describe("a provider constructor that throws", () => {
+    it("propagates out of Module.init() unwrapped and leaves the module un-initialized", () => {
+        const THROWS = Symbol.for("tests.torture.throws")
+
+        class Exploding {
+            constructor() {
+                throw new Error("boom from a constructor")
+            }
+        }
+        injectableClass(Exploding)
+
+        const module = new App({ providers: [{ provide: THROWS, useClass: Exploding } as Provider] })
+
+        expect(() => module.init()).toThrowError("boom from a constructor")
+        expect(module.initialized).toBe(false)
+        expect(module.mounted).toBe(false)
     })
 })
 

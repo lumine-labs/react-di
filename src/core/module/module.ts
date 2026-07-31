@@ -129,7 +129,8 @@ export class Module {
         this.#providers = providers.map((provider) => {
             if (typeof provider === "function") return { token: provider }
 
-            const snapshot: ProviderSnapshot = { token: provider.provide }
+            const token = provider.useClass !== undefined ? (provider.provide ?? provider.useClass) : provider.provide
+            const snapshot: ProviderSnapshot = { token }
 
             if ("lazy" in provider && provider.lazy) snapshot.lazy = true
             if ("useExisting" in provider) snapshot.aliasOf = provider.useExisting

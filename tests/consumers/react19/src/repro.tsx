@@ -40,6 +40,8 @@ import {
     ModuleRegistry,
     Optional,
     PropsRef,
+    Ref,
+    RefMap,
     Resolver,
     Scope,
     Token,
@@ -369,6 +371,109 @@ class ManuallyDecorated {
 decorate(Injectable(), ManuallyDecorated)
 decorate(Inject(ApiClient), ManuallyDecorated, 0)
 
+// `Injectable` takes nothing. Inversify's `injectable(scope?)` accepts a scope, but that channel is dead
+// here — `Container.register()` always sets the binding scope explicitly, and an explicit binding scope
+// beats the decorator's default — so an argument would be silently ignored rather than obeyed. Scope
+// belongs to the registration (`{ useClass: X, scope: Scope.Transient }`), so the arity is the API.
+
+// @ts-expect-error `Injectable` takes no arguments — scope lives on the provider, not on the class.
+void Injectable("Transient")
+
+// @ts-expect-error and no other argument gets in either.
+void Injectable(Scope.Transient)
+
+// `InjectAll` is the same closure on the other inversify option channel. `multiInject(token, { chained })`
+// defaults to UNCHAINED, which disagreed with `resolveAll` the moment a token was declared in both a module
+// and an ancestor; ours hardcodes `{ chained: true }` so the two paths are one semantics. Collecting across
+// the container chain is what "all" means here, and there is no unchained mode to ask for.
+
+// @ts-expect-error `InjectAll` takes a token and nothing else — chained-ness is not a per-site option.
+void InjectAll(PLUGIN, { chained: true })
+
+// @ts-expect-error not even the value that used to be the default.
+void InjectAll(PLUGIN, { chained: false })
+
+// Element holders — Ref / RefMap, and the subclass-as-token pattern.
+// ========================================
+//
+// Each subclass is its own class and therefore its own injection token, which is how "one element per
+// token" is spelled with no token ceremony. No `@Injectable()` on either: a zero-dependency class carries
+// no constructor metadata for inversify to want (MEASURED against 8.2.3 through the real
+// `register()` + `resolve()` path). The decorator only becomes necessary once a subclass takes constructor
+// parameters, exactly like any other class.
+
+class InputRef extends Ref<HTMLInputElement> {}
+class FieldRefs extends RefMap<HTMLInputElement> {}
+class RowRefs extends RefMap<HTMLTableRowElement, number> {}
+
+declare const inputRef: InputRef
+declare const fieldRefs: FieldRefs
+declare const rowRefs: RowRefs
+
+// The holder is typed by the type parameter, and starts null.
+const heldInput = inputRef.current
+type _RefCurrent = Expect<Equals<typeof heldInput, HTMLInputElement | null>>
+type _RefCurrentIsNotAny = Expect<Not<IsAny<typeof heldInput>>>
+
+// `set` is what goes on the `ref` prop: a callback taking the element or null and returning nothing. The
+// void return is load-bearing on React 19, which reads any other return value as a cleanup function.
+type _RefSet = Expect<Equals<typeof inputRef.set, (value: HTMLInputElement | null) => void>>
+
+const attachInput = <input ref={inputRef.set} />
+void attachInput
+
+// No negative pin for the wrong element type on purpose: `<div ref={inputRef.set} />` is an error under
+// @types/react 19 but NOT under 18, whose `RefCallback` is declared through the bivariance hack and so
+// accepts any element-shaped callback. The mismatch is caught for React 19 consumers and silently is not
+// for React 18 ones — a typings fact, not something the holder can fix, and this file has to compile
+// identically under both. `_RefSet` above is the assertion that actually holds everywhere.
+
+// RefMap keys default to string, and `set(key)` hands back the same per-key callback shape.
+const attachField = fieldRefs.set("email")
+type _RefMapSet = Expect<Equals<typeof attachField, (element: HTMLInputElement | null) => void>>
+
+const heldField = fieldRefs.get("email")
+type _RefMapGet = Expect<Equals<typeof heldField, HTMLInputElement | null>>
+
+const allFields = fieldRefs.all()
+type _RefMapAll = Expect<Equals<typeof allFields, ReadonlyMap<string, HTMLInputElement>>>
+
+// @ts-expect-error `all()` is a read-only view — the map is not the place to attach elements.
+allFields.set("email", null as unknown as HTMLInputElement)
+
+// The second type parameter moves the key off `string`.
+type _RefMapKeyed = Expect<Equals<ReturnType<typeof rowRefs.all>, ReadonlyMap<number, HTMLTableRowElement>>>
+
+// @ts-expect-error a number-keyed RefMap does not take a string key.
+void rowRefs.set("1")
+
+const attachRow = <tr ref={rowRefs.set(1)} />
+void attachRow
+
+// Both are ordinary class providers: bare constructor, or `useClass` with a scope.
+const refProviders: Provider[] = [InputRef, FieldRefs, { useClass: RowRefs, scope: Scope.Transient }]
+const refClassProvider: ClassProvider<InputRef> = { provide: InputRef, useClass: InputRef }
+void refClassProvider
+
+// And the point of all of it: a service reaches the element through DI instead of through props. The
+// subclass is the token, so `@Inject(InputRef)` says which element without a symbol in sight.
+@Injectable()
+class FocusManager {
+    constructor(
+        @Inject(InputRef) private readonly input: InputRef,
+        @Inject(FieldRefs) private readonly fields: FieldRefs
+    ) {}
+
+    onModuleMount(): void {
+        // Populated by now: refs attach in the commit, modules mount in a passive effect.
+        this.input.current?.focus()
+    }
+
+    focusField(key: string): void {
+        this.fields.get(key)?.focus()
+    }
+}
+
 // Providers — all five shapes the registry accepts.
 // ========================================
 
@@ -390,6 +495,19 @@ const lazyClassProvider: ClassProvider<PluginRegistry> = {
     useClass: PluginRegistry,
     lazy: true,
 }
+
+// The same shape with `provide` left out: the class registers under itself, which is what the bare
+// constructor does — except the options are available here. `ClassProvider` names both spellings, so no
+// second type joined the surface to pay for the sugar.
+const shorthandClassProvider: ClassProvider<ManuallyDecorated> = { useClass: ManuallyDecorated }
+const lazyShorthandProvider: ClassProvider<PluginRegistry> = { useClass: PluginRegistry, lazy: true }
+const transientShorthandProvider: ClassProvider<ApiClient> = { useClass: ApiClient, scope: Scope.Transient }
+void lazyShorthandProvider
+void transientShorthandProvider
+
+// And it is a `Provider` in its own right, options and all.
+const shorthandInUnion: Provider = { useClass: PluginRegistry, scope: "singleton", lazy: true }
+void shorthandInUnion
 
 // 3. value provider
 const valueProvider: ValueProvider<AppConfig> = {
@@ -457,6 +575,50 @@ void Scope.ContainerScoped
 const mistypedValueProvider: ValueProvider<AppConfig> = { provide: CONFIG, useValue: { baseUrl: "x" } }
 void mistypedValueProvider
 
+// The class-only restriction, pinned. `provide` is optional for `useClass` because a class is its own
+// token; every other form has no token to derive, so dropping `provide` there must stay an error. These
+// four assertions are what stops optional-`provide` from leaking across the union.
+
+// @ts-expect-error a value has no derivable token — `provide` stays required.
+const provideLessValue: Provider = { useValue: { baseUrl: "x", retries: 0 } }
+void provideLessValue
+
+// @ts-expect-error a factory has no derivable token either.
+const provideLessFactory: Provider = { useFactory: () => new ConsoleLogger("") }
+void provideLessFactory
+
+// @ts-expect-error an alias needs both ends named; the target is not the token.
+const provideLessExisting: Provider = { useExisting: LOGGER }
+void provideLessExisting
+
+// The same three under their own type names, where `provide` is plainly a required field.
+// @ts-expect-error ValueProvider requires `provide`.
+const provideLessValueProvider: ValueProvider<AppConfig> = { useValue: { baseUrl: "x", retries: 0 } }
+void provideLessValueProvider
+
+// Exactly one implementation key. Each form declares all four and forbids the three it is not, so a mixed
+// provider is rejected AT the offending key rather than bouncing off the union as a whole. Verbatim, for
+// the first of these:
+//
+//   Type '{ provide: symbol; useClass: typeof ConsoleLogger; useValue: ConsoleLogger; }' is not
+//   assignable to type 'Provider'.
+//     Types of property 'useValue' are incompatible.
+//       Type 'ConsoleLogger' is not assignable to type 'undefined'.
+//
+// That second line is the whole point of the matrix: the diagnostic names the key you got wrong.
+
+// @ts-expect-error a class provider cannot also carry a value.
+const classAndValue: Provider = { provide: LOGGER, useClass: ConsoleLogger, useValue: new ConsoleLogger("") }
+void classAndValue
+
+// @ts-expect-error a factory provider cannot also be an alias.
+const factoryAndExisting: Provider = { provide: FEATURE_LOGGER, useFactory: () => 1, useExisting: LOGGER }
+void factoryAndExisting
+
+// @ts-expect-error dropping `provide` is not a licence to add a stray implementation key.
+const shorthandAndValue: Provider = { useClass: ApiClient, useValue: 1 }
+void shorthandAndValue
+
 const moduleProviders: Provider[] = [
     constructorProvider,
     classProvider,
@@ -464,9 +626,12 @@ const moduleProviders: Provider[] = [
     valueProvider,
     factoryProvider,
     existingProvider,
+    shorthandClassProvider,
     Diagnostics,
     UserStore,
     ManuallyDecorated,
+    FocusManager,
+    ...refProviders,
 ]
 
 // Props bridge
@@ -991,12 +1156,16 @@ const publicValueSurface = [
     ModuleRegistry,
     Resolver,
     PropsRef,
+    Ref,
+    RefMap,
     Token,
     makeTokenizer,
 ] as const
 // 24 -> 25 on the 0.5.0 rework: `ModuleMetadata` and public `useModule` left with the modes; `App`,
-// `Module` and `AppProvider` arrived with the App/Module classes.
-type _PublicValueSurfaceSize = Expect<Equals<typeof publicValueSurface.length, 25>>
+// `Module` and `AppProvider` arrived with the App/Module classes. 25 -> 27 with the element holders,
+// `Ref` and `RefMap`. Both are classes, so each is a value and a type under one name — the type surface
+// below is unchanged by them, exactly as it is by `PropsRef`.
+type _PublicValueSurfaceSize = Expect<Equals<typeof publicValueSurface.length, 27>>
 
 // The `./types` subpath must carry the entire public type surface. Every exported name is referenced
 // once.
@@ -1030,7 +1199,8 @@ type PublicTypeSurface = [
 // `RootModuleParams` and `ScopedModuleParams` left with the modes, and `ModuleMetadataInit` /
 // `ModuleMetadataProvider` with the ModuleMetadata concept; `ModuleParams` and `AppProviderProps`
 // arrived with the App/Module classes. 26 -> 24 when `onModuleError` was removed, taking
-// `ModuleErrorHook` and `ModulePhase` with it.
+// `ModuleErrorHook` and `ModulePhase` with it. Unchanged by the provide-less `useClass` shorthand: it is
+// a second member of `ClassProvider`, not a new name.
 type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 24>>
 
 // Keep the module-scope constants that exist only to be typechecked from being flagged as dead by a

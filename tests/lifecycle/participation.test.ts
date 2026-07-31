@@ -63,6 +63,37 @@ describe("participation", () => {
         expect(log).toEqual(["A:ctor", "A:init", "A:mount", "A:unmount", "A:destroy"])
     })
 
+    it("gives the provide-less useClass shorthand the same four phases as the bare constructor", async () => {
+        const log: string[] = []
+        const service = tracked(log, "S")
+        const module = makeApp({ providers: [{ useClass: service } as Provider] })
+
+        module.mount()
+        module.unmount()
+        await module.destroy()
+
+        expect(service.counts).toEqual(ONCE)
+        expect(log).toEqual(["S:ctor", "S:init", "S:mount", "S:unmount", "S:destroy"])
+    })
+
+    it("never adopts a transient declared through the provide-less useClass shorthand", async () => {
+        const log: string[] = []
+        const service = tracked(log, "T")
+        const module = makeApp({ providers: [{ useClass: service, scope: Scope.Transient } as Provider] })
+
+        // Not built by the eager pass either — a transient has no eager pass to join.
+        expect(log).toEqual([])
+
+        module.mount()
+        module.container.resolve(service as never)
+        module.container.resolve(service as never)
+        module.unmount()
+        await module.destroy()
+
+        expect(service.counts).toEqual(NOTHING)
+        expect(phase(log, "ctor")).toEqual(["T:ctor", "T:ctor"])
+    })
+
     it("counts one object registered under two useValue tokens once", async () => {
         const counts: HookCounts = { init: 0, mount: 0, unmount: 0, destroy: 0 }
         const shared = {

@@ -170,8 +170,9 @@ export class ModuleLifecycle {
 
         this.#claimed = true
         this.registry.detach()
-        // `#committed` means "attach() has been called", so it may only go false behind a detach.
+
         this.#committed = false
+        this.#mounted = false
 
         nodes.push(this)
         return nodes

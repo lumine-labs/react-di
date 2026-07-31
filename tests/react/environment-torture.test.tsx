@@ -1,6 +1,6 @@
 import { act, render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { StrictMode, type ReactNode } from "react"
+import { Activity, StrictMode, useState, type ReactNode } from "react"
 
 import { decorate, Injectable } from "../../src/container/index.js"
 import type { Provider } from "../../src/container/index.js"
@@ -30,15 +30,18 @@ const { renderToString } = (await import("react-dom/server")) as unknown as Reac
 // @ts-expect-error -- untyped without @types/react-dom; the local type above is the contract used here.
 const { hydrateRoot } = (await import("react-dom/client")) as unknown as ReactDomClient
 
-// Environment torture — SSR and StrictMode
+// Environment torture — SSR, StrictMode and <Activity>
 // ========================================
 //
-// Two environments the package makes no promises about, isolated here because they need their own
+// Three environments the package makes no promises about, isolated here because they need their own
 // renderers and their own console handling. Everything below is the CURRENT measured behavior
 // (React 19.2 + jsdom), asserted exactly, so a change to it fails a test instead of drifting unnoticed.
 //
-// SSR comes out clean and is worth having as a floor. StrictMode does NOT — it is unsupported, and those
-// tests exist to document the failure mode, not to bless it.
+// SSR comes out clean and is worth having as a floor. StrictMode and `<Activity>` do NOT — both are
+// unsupported, and those tests exist to document the failure mode, not to bless it. They share one root
+// cause: both simulate a remount by running effect cleanups and then re-running the setups, and the module
+// lifecycle's cleanup is terminal — `ModuleProvider` destroys on cleanup, and a destroyed module refuses
+// every later signal.
 
 // Tracking
 // ========================================
@@ -324,6 +327,213 @@ describe("StrictMode (UNSUPPORTED — current failure mode, pinned)", () => {
         expect(child.generations).toEqual([
             { init: 1, mount: 1, unmount: 1, destroy: 1 },
             { init: 1, mount: 0, unmount: 0, destroy: 0 },
+        ])
+    })
+})
+
+// <Activity>
+// ========================================
+//
+// `<Activity>` is UNSUPPORTED, and these tests document the current failure mode rather than bless it —
+// same framing as the StrictMode block above. It is stable in the installed React (19.2.4 exports
+// `Activity`, not `unstable_Activity`), so the behavior is measurable rather than a doc line.
+//
+// The premise of `<Activity mode="hidden">` is that state SURVIVES while effects do not: React runs every
+// effect cleanup in the subtree on hide and re-runs every setup on reveal, keeping the fibers and their
+// hook state. That is exactly the contract `ModuleProvider` cannot honour. Its cleanup is
+// `try { unmount() } finally { void destroy() }` — destroy is terminal — while the module itself lives in
+// a `useState` initializer, so it is precisely the thing Activity preserves. Hide therefore buries the
+// module and reveal hands the surviving tree a corpse.
+
+describe("<Activity> (UNSUPPORTED — current failure mode, pinned)", () => {
+    it("destroys the module on hide and leaves a DEAD tree on reveal", async () => {
+        const log: string[] = []
+        const tracker = genTracker(log)
+        const modules: Module[] = []
+
+        function Probe(): ReactNode {
+            modules.push(useModuleContext().module)
+            return null
+        }
+
+        let setMode: (mode: "visible" | "hidden") => void = () => {}
+        function Harness(): ReactNode {
+            const [mode, set] = useState<"visible" | "hidden">("visible")
+            setMode = set
+            return (
+                <Root>
+                    <Activity mode={mode}>
+                        <ModuleProvider providers={[tracker.provider]}>
+                            <Probe />
+                            <span data-testid="content">content</span>
+                        </ModuleProvider>
+                    </Activity>
+                </Root>
+            )
+        }
+
+        const { queryByTestId } = render(<Harness />)
+        expect(log).toEqual(["S1:ctor", "S1:init", "S1:mount"])
+        log.length = 0
+
+        // Hide: the effect cleanup runs in full, so the module is unmounted AND destroyed — while the
+        // subtree is still rendered and its DOM is still in the document.
+        await act(async () => setMode("hidden"))
+        await flush()
+
+        expect(log).toEqual(["S1:unmount", "S1:destroy"])
+        expect(queryByTestId("content")).toBeInTheDocument()
+
+        const buried = modules.at(-1)!
+        expect(buried.claimed).toBe(true)
+        expect(buried.mounted).toBe(false)
+        expect(buried.initialized).toBe(true)
+        log.length = 0
+
+        // ==================== MEASURED — the reveal is a no-op ====================
+        //
+        // React re-runs ModuleProvider's effect setup, which calls `module.mount()` on the SAME module it
+        // preserved — and `mount()` bails on the `#destroyed` guard. Nothing is rebuilt (the `useState`
+        // initializer is not re-run), nothing mounts, nothing errors. The subtree renders normally over a
+        // module whose providers have already had their destroy hooks, so every service in it is holding
+        // released resources.
+        await act(async () => setMode("visible"))
+        await flush()
+
+        expect(log).toEqual([])
+        expect(tracker.generations).toEqual([{ init: 1, mount: 1, unmount: 1, destroy: 1 }])
+        expect(new Set(modules).size).toBe(1)
+        expect(modules.at(-1)).toBe(buried)
+        expect(buried.mounted).toBe(false)
+        expect(queryByTestId("content")).toBeInTheDocument()
+    })
+
+    it("survives exactly one visible period when the boundary starts hidden", async () => {
+        const log: string[] = []
+        const tracker = genTracker(log)
+
+        let setMode: (mode: "visible" | "hidden") => void = () => {}
+        function Harness(): ReactNode {
+            const [mode, set] = useState<"visible" | "hidden">("hidden")
+            setMode = set
+            return (
+                <Root>
+                    <Activity mode={mode}>
+                        <ModuleProvider providers={[tracker.provider]}>
+                            <span data-testid="content">content</span>
+                        </ModuleProvider>
+                    </Activity>
+                </Root>
+            )
+        }
+
+        const { queryByTestId } = render(<Harness />)
+        await flush()
+
+        // A hidden boundary still RENDERS its children — so the module is built and inited, and only the
+        // effect-phase mount is withheld. Same abandonment shape as SSR or a suspended render.
+        expect(log).toEqual(["S1:ctor", "S1:init"])
+        expect(queryByTestId("content")).toBeInTheDocument()
+        log.length = 0
+
+        // The first reveal is the one that works: the effect setup finally runs and the module mounts.
+        await act(async () => setMode("visible"))
+        await flush()
+        expect(log).toEqual(["S1:mount"])
+        log.length = 0
+
+        // And the first hide spends it. Everything after this is the dead tree of the test above.
+        await act(async () => setMode("hidden"))
+        await flush()
+        expect(log).toEqual(["S1:unmount", "S1:destroy"])
+        expect(tracker.generations).toEqual([{ init: 1, mount: 1, unmount: 1, destroy: 1 }])
+    })
+
+    it("leaves the App permanently unmounted when Activity wraps <AppProvider> — a different guard, same corpse", async () => {
+        const log: string[] = []
+        const tracker = genTracker(log, "App")
+        const apps: Module[] = []
+
+        function Probe(): ReactNode {
+            apps.push(useModuleContext().module)
+            return null
+        }
+
+        let setMode: (mode: "visible" | "hidden") => void = () => {}
+        function Harness(): ReactNode {
+            const [mode, set] = useState<"visible" | "hidden">("visible")
+            setMode = set
+            return (
+                <Activity mode={mode}>
+                    <Root providers={[tracker.provider]}>
+                        <Probe />
+                    </Root>
+                </Activity>
+            )
+        }
+
+        render(<Harness />)
+        log.length = 0
+
+        // AppProvider never destroys — the App is owned outside the tree — so the hide only unmounts.
+        await act(async () => setMode("hidden"))
+        await flush()
+        expect(log).toEqual(["App1:unmount"])
+        log.length = 0
+
+        // MEASURED: the reveal is still a no-op, for a different reason. `#committed` is only cleared behind
+        // a detach (i.e. by destroy), so an unmounted-but-not-destroyed App fails `mount()`'s
+        // `if (this.#committed) return` guard. Nothing can re-mount it.
+        await act(async () => setMode("visible"))
+        await flush()
+
+        expect(log).toEqual([])
+        expect(tracker.generations).toEqual([{ init: 1, mount: 1, unmount: 1, destroy: 0 }])
+        const app = apps.at(-1)!
+        expect(app.mounted).toBe(false)
+        expect(app.claimed).toBe(false)
+    })
+
+    it("comes back only through an explicit rebuild(), which mints a fresh generation", async () => {
+        const log: string[] = []
+        const tracker = genTracker(log)
+        let rebuild: () => void = () => {}
+
+        function Probe(): ReactNode {
+            rebuild = useModuleContext().rebuild
+            return null
+        }
+
+        let setMode: (mode: "visible" | "hidden") => void = () => {}
+        function Harness(): ReactNode {
+            const [mode, set] = useState<"visible" | "hidden">("visible")
+            setMode = set
+            return (
+                <Root>
+                    <Activity mode={mode}>
+                        <ModuleProvider providers={[tracker.provider]}>
+                            <Probe />
+                        </ModuleProvider>
+                    </Activity>
+                </Root>
+            )
+        }
+
+        render(<Harness />)
+        await act(async () => setMode("hidden"))
+        await act(async () => setMode("visible"))
+        await flush()
+        log.length = 0
+
+        // The documented escape hatch, if an app insists on living under Activity: rebuild() replaces the
+        // buried module wholesale, and the new generation goes through init and mount normally.
+        await act(async () => rebuild())
+        await flush()
+
+        expect(log).toEqual(["S2:ctor", "S2:init", "S2:mount"])
+        expect(tracker.generations).toEqual([
+            { init: 1, mount: 1, unmount: 1, destroy: 1 },
+            { init: 1, mount: 1, unmount: 0, destroy: 0 },
         ])
     })
 })

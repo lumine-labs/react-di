@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { Container, Scope } from "../../src/container/index.js"
-import type { Provider } from "../../src/container/index.js"
+import type { Constructor, Provider } from "../../src/container/index.js"
 import { App, Module } from "../../src/core/module/module.js"
 import { ModuleLifecycle } from "../../src/core/providers/module-lifecycle/module-lifecycle.provider.js"
 import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"
@@ -66,6 +66,34 @@ describe("user providers", () => {
             { token: VALUE },
             { token: FACTORY, lazy: true },
         ])
+    })
+
+    it("normalizes the provide-less useClass shorthand exactly like the provide + useClass form it stands for", () => {
+        const Bare = plain("bare") as unknown as Constructor
+        const Scoped = plain("scoped") as unknown as Constructor
+        const Lazy = plain("lazy") as unknown as Constructor
+
+        const shorthand = new App({
+            providers: [
+                { useClass: Bare },
+                { useClass: Scoped, scope: Scope.Transient },
+                { useClass: Lazy, lazy: true },
+            ],
+        })
+        const longhand = new App({
+            providers: [
+                { provide: Bare, useClass: Bare },
+                { provide: Scoped, useClass: Scoped, scope: Scope.Transient },
+                { provide: Lazy, useClass: Lazy, lazy: true },
+            ],
+        })
+
+        expect(userSnapshot(shorthand)).toEqual([
+            { token: Bare },
+            { token: Scoped, scope: "transient" },
+            { token: Lazy, lazy: true },
+        ])
+        expect(userSnapshot(shorthand)).toEqual(userSnapshot(longhand))
     })
 
     it("keeps nothing constructible — no instances, no classes, no closures", () => {
@@ -147,5 +175,62 @@ describe("user providers", () => {
 
         expect(module.container).toBeInstanceOf(Container)
         expect(module.container.resolve(VALUE)).toBe(1)
+    })
+})
+
+// The two layers agree because only one of them ever runs on a bad shape
+// ========================================
+//
+// `#setProviders` discriminates with `provider.useClass !== undefined`; the container discriminates with
+// `"useClass" in provider`. Those rules disagree on any shape carrying an explicit-undefined key — but the
+// disagreement is unreachable, because `Module`'s constructor calls `container.register` BEFORE
+// `#setProviders`, and the container rejects every such shape.
+//
+// That makes the ordering load-bearing rather than incidental: move the snapshot ahead of the
+// registration and the module would silently normalize a provider the container would have refused.
+// These tests guard the ordering, not the normalization.
+
+describe("registration runs before the snapshot", () => {
+    it("rejects an explicit-undefined implementation key at the container, not the module layer", () => {
+        // `#setProviders` would read this as a plain class provider under VALUE (`useClass` is undefined,
+        // so it falls through to `provide`). The container never lets it get that far.
+        expect(() => new App({ providers: [{ provide: VALUE, useClass: undefined } as unknown as Provider] })).toThrow(
+            /has no recognised form/
+        )
+    })
+
+    it("rejects a mixed-key provider at the container, with the container's message", () => {
+        const Service = plain("mixed") as unknown as Constructor
+
+        // `#setProviders` would happily normalize this to `{ token: Service }`.
+        expect(() =>
+            new App({ providers: [{ useClass: Service, useFactory: undefined } as unknown as Provider] })
+        ).toThrow(/mixes 2 implementation keys \(useClass, useFactory\)/)
+    })
+
+    it("rejects a token-less useValue instead of registering it under `undefined`", () => {
+        // Previously this registered under token `undefined` AND joined the lifecycle: `#collectInstances`
+        // observed `{ token: undefined }` and fired the hook. Nothing about that was intentional.
+        const hook = { onModuleInit: () => calls.push("init") }
+        const calls: string[] = []
+
+        expect(() => new App({ providers: [{ useValue: hook } as unknown as Provider] })).toThrow(
+            /^Provider with useValue requires `provide`/
+        )
+        expect(calls).toEqual([])
+    })
+
+    it("leaves no partial registration behind when a later provider in the array is bad", () => {
+        const good = Symbol.for("tests.snapshot.ordering-good")
+
+        expect(
+            () =>
+                new App({
+                    providers: [
+                        { provide: good, useValue: 1 },
+                        { useFactory: () => 2 } as unknown as Provider,
+                    ],
+                })
+        ).toThrow(/^Provider with useFactory requires `provide`/)
     })
 })

@@ -96,6 +96,19 @@ function assertDependenciesAreLocal(name, consumerDir, installedDir) {
     }
 }
 
+/**
+ * The declarations are only as trustworthy as the compile that produced them.
+ *
+ * `tsc` emits a complete `dist` even when the program has type errors, unless `noEmitOnError` says
+ * otherwise — and a `dist` built before that flag existed looks perfectly well-formed from here. That is
+ * not hypothetical either: this runner once reported both profiles green while `npm run typecheck:build`
+ * was failing on TS2459, because it only ever hashed whatever `dist` it found.
+ *
+ * Re-checking the build program costs a couple of seconds and never emits, so the property the header
+ * promises still holds: what gets typechecked is exactly what was built.
+ */
+run("npm", ["run", "typecheck:build"], packageRoot)
+
 const rootDist = join(packageRoot, "dist")
 if (!existsSync(join(rootDist, "index.d.ts"))) {
     fail("dist/index.d.ts is missing — run `npm run build` before `npm run typecheck:consumers`.")

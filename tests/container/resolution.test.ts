@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { Container, Injectable, Scope, decorate } from "../../src/container/index.js"
+import { Container, InjectAll, Injectable, Scope, decorate } from "../../src/container/index.js"
 import type { Constructor } from "../../src/container/index.js"
 
 // resolve / resolveSafe / resolveOr / resolveAll / isRegistered.
 // ========================================
 //
 // `recursive` (default true) is the only knob: true searches the ancestor chain, false searches the
-// container itself. `resolveAll` has no such knob — it is always chained.
+// container itself. `resolveAll` has no such knob — it is always chained, and so is `@InjectAll`.
 
 function injectableClass<T extends Constructor>(target: T): T {
     decorate(Injectable(), target)
@@ -227,6 +227,92 @@ describe("resolveAll", () => {
 
         expect(first).toHaveLength(1)
         expect(first[0]).not.toBe(second[0])
+    })
+})
+
+// @InjectAll and resolveAll are one semantics
+// ========================================
+//
+// The two multi-injection paths must not disagree — the same token reached through a constructor and
+// through the container has to yield the same set, or "all the plugins" means one thing in a service and
+// another in a hook. `InjectAll` therefore hardcodes `{ chained: true }` to match `resolveAll`; inversify's
+// `multiInject` defaults to UNCHAINED, and that default is exactly what diverges once a token is declared
+// in both a module and an ancestor. These tests assert the two paths against EACH OTHER, so a regression on
+// either side fails here rather than quietly splitting the semantics in two.
+
+describe("@InjectAll", () => {
+    function collector(token: symbol): Constructor<{ plugins: string[] }> {
+        const Collector = class {
+            constructor(readonly plugins: string[]) {}
+        }
+        decorate(Injectable(), Collector)
+        decorate(InjectAll(token) as ParameterDecorator, Collector, 0)
+
+        return Collector as unknown as Constructor<{ plugins: string[] }>
+    }
+
+    it("collects the whole chain, exactly as resolveAll does for the same container", () => {
+        const { leaf, token } = chain()
+        const Collector = collector(token)
+        leaf.register(Collector)
+
+        const injected = leaf.resolve(Collector).plugins
+
+        expect(injected).toEqual(leaf.resolveAll(token))
+        expect(injected).toEqual(["leaf", "middle", "root"])
+    })
+
+    it("agrees with resolveAll from a container part-way up the chain", () => {
+        const { middle, token } = chain()
+        const Collector = collector(token)
+        middle.register(Collector)
+
+        const injected = middle.resolve(Collector).plugins
+
+        // The unchained default would have handed back just ["middle"] here — this is the divergence.
+        expect(injected).toEqual(middle.resolveAll(token))
+        expect(injected).toEqual(["middle", "root"])
+    })
+
+    it("agrees with resolveAll when the injecting container declares nothing itself", () => {
+        const { leaf, token } = chain()
+        const bare = leaf.fork()
+        const Collector = collector(token)
+        bare.register(Collector)
+
+        const injected = bare.resolve(Collector).plugins
+
+        expect(injected).toEqual(bare.resolveAll(token))
+        expect(injected).toEqual(["leaf", "middle", "root"])
+    })
+
+    it("agrees with resolveAll on an empty result", () => {
+        const EMPTY = Symbol("unbound-plugins")
+        const container = new Container()
+        const Collector = collector(EMPTY)
+        container.register(Collector)
+
+        expect(container.resolve(Collector).plugins).toEqual(container.resolveAll(EMPTY))
+        expect(container.resolve(Collector).plugins).toEqual([])
+    })
+
+    it("injects the very instances resolveAll returns", () => {
+        const TOKEN = Symbol("plugin-instances")
+        class Plugin {}
+        injectableClass(Plugin)
+
+        const root = new Container()
+        root.register({ provide: TOKEN, useClass: Plugin })
+        const child = root.fork()
+        child.register({ provide: TOKEN, useClass: Plugin })
+
+        const Collector = collector(TOKEN)
+        child.register(Collector)
+
+        // Identity, not just shape: singletons are shared with the container path, never rebuilt for the
+        // injection site.
+        expect(child.resolve(Collector).plugins).toEqual(child.resolveAll(TOKEN))
+        expect(child.resolve(Collector).plugins[0]).toBe(child.resolveAll(TOKEN)[0])
     })
 })
 
