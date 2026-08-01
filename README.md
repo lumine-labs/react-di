@@ -5,8 +5,6 @@
 Ownership boundaries, dependency injection, and deterministic lifecycle for applications that outgrow component-local
 state.
 
-###
-
 > ⚠️ **Experimental / Internal Use**
 >
 > Primarily intended for personal and internal use. It may change, break, or be
@@ -15,7 +13,7 @@ state.
 
 ## [Documentation](https://lumine-labs.github.io/remodulo/)
 
-## Why?
+## The problem
 
 React is excellent at composing UI, but intentionally leaves ownership of application objects to the developer.
 
@@ -25,13 +23,15 @@ scattered across components.
 **Remodulo introduces modules as explicit ownership boundaries.**
 
 A module owns its dependency graph, resources, and lifecycle, and is destroyed together with the React subtree it represents.
+
 ## Why Remodulo?
 
 - **Explicit ownership** - every module owns its dependency graph and lifecycle.
-- **Deterministic lifecycle** - `init → mount → unmount → destroy`, synchronized with the React component tree.
+- **Deterministic LIFO/RAII lifecycle** - `init → mount → unmount → destroy`, synchronized with the React component tree.
 - **Scoped dependency injection** - constructor injection without global service locators or prop drilling.
 - **Modular composition** - build applications from isolated, composable feature modules.
 - **Minimal Context usage** - Context becomes a module implementation detail rather than the primary application architecture.
+
 ## Concept
 
 ```text
@@ -57,7 +57,7 @@ When the UI subtree disappears, everything it owns disappears with it.
 ## Quick Example
 
 ```tsx
-import { App, AppProvider, ModuleProvider, useResolve } from "@remodulo/react"
+import { App, AppProvider, Injectable, ModuleProvider, useResolve } from "@remodulo/react"
 
 @Injectable()
 class UserApi {
@@ -102,7 +102,7 @@ export function Root() {
 - a routing library
 - a data fetching library
 
-It focuses on one thing: **ownership of application objects and their lifetime.** 
+It focuses on one thing: **ownership of application objects and their lifetime.**
 
 Use MobX, Redux, Zustand, React Query, or any other library you prefer.
 
