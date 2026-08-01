@@ -48,6 +48,7 @@ import {
     Resolver,
     Scope,
     Token,
+    createFeature,
     createModuleComponent,
     decorate,
     makeTokenizer,
@@ -72,6 +73,7 @@ import type {
     ExistingProvider,
     FactoryDependency,
     FactoryProvider,
+    Feature,
     InjectionToken,
     ModuleContextValue,
     ModuleHook,
@@ -82,6 +84,7 @@ import type {
     OptionalFactoryDependency,
     PropsAdapter,
     Provider,
+    ProviderInput,
     ProviderLifecycle,
     SelfClassProvider,
     TokenClassProvider,
@@ -805,6 +808,56 @@ const chainedInsideProvider: FactoryProvider<Plugin> = {
 }
 void chainedInsideProvider
 
+// Features — provider bundles.
+// ========================================
+//
+// `createFeature` bundles provider inputs behind one value, and `ProviderInput` is `Provider | Feature`, so
+// features nest. The bundle is flattened where a module is CONSTRUCTED, which is the only place the widening
+// reaches: every params surface takes `readonly ProviderInput[]`, and `Container.register` still takes
+// providers alone.
+
+const LOGGING_FEATURE = createFeature({ providers: [factoryProvider, existingProvider] })
+type _CreateFeatureReturnsFeature = Expect<Equals<typeof LOGGING_FEATURE, Feature>>
+type _CreateFeatureIsNotAny = Expect<Not<IsAny<typeof LOGGING_FEATURE>>>
+
+const NAMED_FEATURE = createFeature({ name: "billing", providers: [ApiClient, classProvider] })
+const featureName = NAMED_FEATURE.name
+type _FeatureName = Expect<Equals<typeof featureName, string | undefined>>
+
+// A feature carries a collection member like any other provider, and features nest.
+const PLUGIN_FEATURE = createFeature({ providers: [multiClass, multiValue] })
+const ROOT_FEATURE = createFeature({ name: "root", providers: [LOGGING_FEATURE, PLUGIN_FEATURE, valueProvider] })
+
+const featureProviders = ROOT_FEATURE.providers
+type _FeatureProviders = Expect<Equals<typeof featureProviders, readonly ProviderInput[]>>
+
+// Both arms of the input union, named.
+const providerInputs: readonly ProviderInput[] = [ApiClient, valueProvider, ROOT_FEATURE]
+const providerAsInput: ProviderInput = classProvider
+void [providerInputs, providerAsInput]
+
+// The params surfaces that widened.
+const featureModuleParams: ModuleParams = { id: "featured", providers: [ROOT_FEATURE, ApiClient] }
+const featureProviderProps: ModuleProviderProps = { providers: [ROOT_FEATURE], children: null }
+void [featureModuleParams, featureProviderProps]
+
+// @ts-expect-error `createFeature` takes a params object — a bare array of providers is not one.
+const bareArrayFeature = createFeature([ApiClient])
+void bareArrayFeature
+
+// @ts-expect-error `name` is a string when present.
+const numericNameFeature = createFeature({ name: 123, providers: [ApiClient] })
+void numericNameFeature
+
+// The container API is deliberately NOT widened: a feature is flattened by the module that receives it,
+// and `register()` never sees one.
+
+// @ts-expect-error a Feature is not a Provider — `register` takes providers alone.
+void new Container().register(ROOT_FEATURE)
+
+// @ts-expect-error and the array form refuses it for the same reason.
+void new Container().register([ApiClient, ROOT_FEATURE])
+
 const moduleProviders: Provider[] = [
     constructorProvider,
     classProvider,
@@ -875,6 +928,10 @@ type _UserVMModuleProps = Expect<Equals<typeof UserVMModule, ComponentType<UserP
 
 // (d) no arguments at all — a module that only owns a scope.
 const BareModule = createModuleComponent()
+
+// (e) a feature in `providers` — the bundle flattens at construction, so the component type is unchanged.
+const FeaturedModule = createModuleComponent<UserProps>({ providers: [ROOT_FEATURE, ...moduleProviders] })
+type _FeaturedModuleProps = Expect<Equals<typeof FeaturedModule, ComponentType<UserProps & { children?: ReactNode }>>>
 
 // @ts-expect-error the adapter's input is the component's props, not the bridged type.
 const mismatchedAdapterModule = createModuleComponent<UserProps, UserVM>({}, { adapter: { create: (initial: UserVM) => initial, update: ({ current }) => current } })
@@ -1166,6 +1223,8 @@ export function AppTree(): ReactElement {
 
                 <UserFactoryModule userId="u-3" />
 
+                <FeaturedModule userId="u-4" />
+
                 <BareModule>
                     <RebuildingModule>
                         <ManualModule />
@@ -1393,6 +1452,7 @@ const publicValueSurface = [
     Module,
     AppProvider,
     ModuleProvider,
+    createFeature,
     createModuleComponent,
     useContainer,
     useModuleContext,
@@ -1419,8 +1479,9 @@ const publicValueSurface = [
 // `ResolveMode` today, separate enum because it is a registration-axis question rather than a resolution
 // one, and a third `Enum` on the same idiom is a third name in both lists. Still 30 after
 // `useResolveSafe` -> `useResolveOptional`: a rename replaces a name in this list rather than adding one,
-// so the count holding is the evidence that nothing else moved with it.
-type _PublicValueSurfaceSize = Expect<Equals<typeof publicValueSurface.length, 30>>
+// so the count holding is the evidence that nothing else moved with it. 30 -> 31 with `createFeature`: the
+// only value provider bundles add, since a `Feature` is made by that call and never by a constructor.
+type _PublicValueSurfaceSize = Expect<Equals<typeof publicValueSurface.length, 31>>
 
 // The `./types` subpath must carry the entire public type surface. Every exported name is referenced
 // once.
@@ -1431,10 +1492,12 @@ type PublicTypeSurface = [
     ExistingProvider<Logger>,
     FactoryDependency,
     FactoryProvider<Logger>,
+    Feature,
     InjectionToken<AppConfig>,
     MultiFactoryDependency<Plugin>,
     OptionalFactoryDependency<AppConfig>,
     Provider,
+    ProviderInput,
     ResolveMode,
     ResolveAllMode,
     RegistrationMode,
@@ -1474,8 +1537,11 @@ type PublicTypeSurface = [
 // `ClassProvider` members — `FactoryDependency` is a union, and a consumer storing or forwarding one arm of
 // it has to be able to NAME that arm. The value surface is untouched; all three are types only. Still 30
 // when `multi: false` became a legal provider spelling: the token-bearing forms widened to `multi?:
-// boolean` and the shorthand to `multi?: false`, both inside shapes this list already names.
-type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 30>>
+// boolean` and the shorthand to `multi?: false`, both inside shapes this list already names. 30 -> 32 with
+// provider bundles: `Feature` is what `createFeature` returns and `ProviderInput` is the `Provider | Feature`
+// union every params surface now takes, so a consumer that stores or forwards either has to be able to NAME
+// it — and `ModuleParams`, already in this list, is unusable without the second.
+type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 32>>
 
 // The three modes are the only names in that list a consumer imports from the ROOT as values, so the claim
 // that `./types` also carries them cannot ride on the import block above. Pinned directly instead.

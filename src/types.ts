@@ -26,6 +26,11 @@ export type {
 
 export type { ModuleParams } from "./core/module/module.js"
 
+// Features
+// ========================================
+
+export type { Feature, ProviderInput } from "./core/feature/feature.js"
+
 // Lifecycle
 // ========================================
 

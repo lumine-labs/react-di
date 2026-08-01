@@ -1,5 +1,6 @@
 import { Container, type InjectionToken, type Provider, type Scope } from "../../container/index.js"
 
+import { flattenProviders, type ProviderInput } from "../feature/feature.js"
 import type { ModuleHook, ModuleHooks } from "../providers/module-lifecycle/module-lifecycle.types.js"
 import { ModuleLifecycle } from "../providers/module-lifecycle/module-lifecycle.provider.js"
 import { ModuleRegistry } from "../providers/module-registry/module-registry.provider.js"
@@ -11,7 +12,7 @@ import { id } from "./id.js"
 
 export type ModuleParams = {
     id?: string
-    providers?: Provider[]
+    providers?: readonly ProviderInput[]
 
     onModuleInit?: ModuleHook
     onModuleMount?: ModuleHook
@@ -63,7 +64,7 @@ export class Module {
             { provide: ModuleRegistry, useValue: registry },
             { provide: ModuleLifecycle, useValue: this.#lifecycle },
         ]
-        const user = params?.providers ?? []
+        const user = flattenProviders(params?.providers ?? [])
 
         this.container.register(system)
         this.container.register(user)

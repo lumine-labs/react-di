@@ -13,6 +13,11 @@ export { AppProvider } from "./react/providers/AppProvider.js"
 export { ModuleProvider } from "./react/providers/ModuleProvider.js"
 export { createModuleComponent } from "./react/factories/createModuleComponent.js"
 
+// Features
+// ========================================
+
+export { createFeature } from "./core/feature/feature.js"
+
 // Hooks
 // ========================================
 
