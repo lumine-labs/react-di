@@ -221,7 +221,7 @@ describe("shadowing across a fork", () => {
         const leaf = middle.fork()
 
         expect(leaf.resolve(TOKEN)).toBe("middle")
-        expect(leaf.isRegistered(TOKEN, false)).toBe(false)
+        expect(leaf.isRegistered(TOKEN, "self")).toBe(false)
     })
 
     it("gives each fork its own singleton when both declare the token", () => {

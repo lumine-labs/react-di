@@ -42,6 +42,9 @@ import {
     PropsRef,
     Ref,
     RefMap,
+    RegistrationMode,
+    ResolveAllMode,
+    ResolveMode,
     Resolver,
     Scope,
     Token,
@@ -54,7 +57,7 @@ import {
     usePropsRef,
     useResolve,
     useResolveAll,
-    useResolveSafe,
+    useResolveOptional,
 } from "@luminelabs/react-di"
 
 // The `./types` subpath has to carry the whole type surface on its own — a consumer that only wants
@@ -75,10 +78,13 @@ import type {
     ModuleHooks,
     ModuleParams,
     ModuleProviderProps,
+    MultiFactoryDependency,
     OptionalFactoryDependency,
     PropsAdapter,
     Provider,
     ProviderLifecycle,
+    SelfClassProvider,
+    TokenClassProvider,
     TokenOptions,
     Tokenizer,
     UsePropsRefOptions,
@@ -276,11 +282,29 @@ class Diagnostics {
         const store = this.resolver.resolve(UserStore)
         type _ResolverResolve = Expect<Equals<typeof store, UserStore>>
 
-        const maybeLogger = this.resolver.resolveSafe(LOGGER, false)
-        type _ResolverResolveSafe = Expect<Equals<typeof maybeLogger, Logger | undefined>>
+        // `Resolver` mirrors `Container`'s read surface exactly, mode parameters included — a narrower
+        // signature here is a silent divergence, so both families are pinned through it.
+        const maybeLogger = this.resolver.resolveOptional(LOGGER, "self")
+        type _ResolverResolveOptional = Expect<Equals<typeof maybeLogger, Logger | undefined>>
+        type _ResolverResolveMode = Expect<Equals<Parameters<Resolver["resolveOptional"]>[1], ResolveMode | undefined>>
+
+        // `isRegistered` is the one read that does NOT take `ResolveMode`: it asks a registration question,
+        // not a resolution one, so it takes `RegistrationMode`. The two unions are structurally identical
+        // today, so this pin cannot tell them apart — it holds the SHAPE, and the name is what documents the
+        // axis. What it does catch is the union growing on one side: `"chained"` is refused below.
+        type _ResolverIsRegisteredMode = Expect<
+            Equals<Parameters<Resolver["isRegistered"]>[1], RegistrationMode | undefined>
+        >
 
         const allPlugins = this.resolver.resolveAll(PLUGIN)
         type _ResolverResolveAll = Expect<Equals<typeof allPlugins, Plugin[]>>
+        type _ResolverResolveAllMode = Expect<
+            Equals<Parameters<Resolver["resolveAll"]>[1], ResolveAllMode | undefined>
+        >
+
+        const nearestPlugins = this.resolver.resolveAll(PLUGIN, "nearest")
+        type _ResolverResolveAllNearest = Expect<Equals<typeof nearestPlugins, Plugin[]>>
+        void nearestPlugins
 
         return [
             id,
@@ -382,12 +406,30 @@ void Injectable("Transient")
 // @ts-expect-error and no other argument gets in either.
 void Injectable(Scope.Transient)
 
-// `InjectAll` is the same closure on the other inversify option channel. `multiInject(token, { chained })`
-// defaults to UNCHAINED, which disagreed with `resolveAll` the moment a token was declared in both a module
-// and an ancestor; ours hardcodes `{ chained: true }` so the two paths are one semantics. Collecting across
-// the container chain is what "all" means here, and there is no unchained mode to ask for.
+// `InjectAll` sits on the other inversify option channel. `multiInject(token, { chained })` defaults to
+// UNCHAINED, which disagreed with `resolveAll` the moment a token was declared in both a module and an
+// ancestor. Ours takes the same MODES as every other multi read, with the same default and the same
+// meaning — one semantics parameterized uniformly, not a second option channel.
+const injectAllDefault = InjectAll(PLUGIN)
+const injectAllChained = InjectAll(PLUGIN, "chained")
+const injectAllNearest = InjectAll(PLUGIN, "nearest")
+const injectAllMember = InjectAll(PLUGIN, ResolveAllMode.Nearest)
+type _InjectAllReturns = Expect<Equals<typeof injectAllDefault, typeof injectAllNearest>>
+void [injectAllDefault, injectAllChained, injectAllNearest, injectAllMember]
 
-// @ts-expect-error `InjectAll` takes a token and nothing else — chained-ness is not a per-site option.
+// The decorator's union is `ResolveAllMode` MINUS `"self"`, and the narrowing is load-bearing rather than
+// an oversight: injection resolves inside inversify's planner, which has chained and unchained
+// `multiInject` and nothing narrower, so own-only injection is not expressible at all. The type says so.
+type _InjectAllMode = Expect<Equals<Parameters<typeof InjectAll>[1], "nearest" | "chained" | undefined>>
+
+// @ts-expect-error the planner cannot do own-only injection, so `"self"` is not one of the decorator's modes.
+void InjectAll(PLUGIN, "self")
+
+// @ts-expect-error and neither is the enum member that spells it.
+void InjectAll(PLUGIN, ResolveAllMode.Self)
+
+// The inversify options OBJECT stays rejected — a mode string is the only shape.
+// @ts-expect-error chained-ness is not a per-site options object.
 void InjectAll(PLUGIN, { chained: true })
 
 // @ts-expect-error not even the value that used to be the default.
@@ -546,6 +588,50 @@ type _ScopeValues = Expect<
 >
 const transientProvider: ClassProvider<ApiClient> = { provide: ApiClient, useClass: ApiClient, scope: Scope.Transient }
 
+// The read modes are declared the same way and reach consumers the same way: an `Enum` whose members ARE
+// the strings, so a member and a bare literal are interchangeable at every call site.
+type _ResolveModeUnion = Expect<Equals<ResolveMode, "self" | "nearest">>
+type _ResolveAllModeUnion = Expect<Equals<ResolveAllMode, "self" | "nearest" | "chained">>
+type _RegistrationModeUnion = Expect<Equals<RegistrationMode, "self" | "nearest">>
+type _ResolveModeValues = Expect<
+    Equals<
+        typeof ResolveMode,
+        {
+            readonly Self: "self"
+            readonly Nearest: "nearest"
+        }
+    >
+>
+type _RegistrationModeValues = Expect<
+    Equals<
+        typeof RegistrationMode,
+        {
+            readonly Self: "self"
+            readonly Nearest: "nearest"
+        }
+    >
+>
+type _ResolveAllModeValues = Expect<
+    Equals<
+        typeof ResolveAllMode,
+        {
+            readonly Self: "self"
+            readonly Nearest: "nearest"
+            readonly Chained: "chained"
+        }
+    >
+>
+
+// A single read has two modes, not three. One value cannot be accumulated, so `"chained"` would have no
+// meaning to give it — and the type refuses it rather than silently treating it as the default.
+// @ts-expect-error `chained` is a collection width; a single read has nothing to accumulate.
+const chainedSingleMode: ResolveMode = "chained"
+void chainedSingleMode
+
+// @ts-expect-error the boolean the modes replaced is gone from every read surface.
+const legacyRecursiveFlag: ResolveMode = true
+void legacyRecursiveFlag
+
 // Negative space: the provider unions must stay discriminated in the emitted declarations.
 
 // @ts-expect-error a class provider has no `inject` — that field belongs to factory providers only.
@@ -618,6 +704,106 @@ void factoryAndExisting
 // @ts-expect-error dropping `provide` is not a licence to add a stray implementation key.
 const shorthandAndValue: Provider = { useClass: ApiClient, useValue: 1 }
 void shorthandAndValue
+
+// Multi-providers — `multi: true`.
+// ========================================
+//
+// A token is either a single registration or a collection, never both, and which of the two it is is a
+// property of the whole container chain, settled at registration. That makes the guards holding the
+// contract up — `resolve` on a collection, `resolveAll` on a single registration, an alias TARGETING a
+// collection — runtime errors by nature; none of them can be pinned from here. What the types owe is
+// exactly this much: `multi: true` on the four forms that name a token, and nowhere else.
+
+class FeaturePlugin implements Plugin {
+    readonly name = "feature"
+}
+
+const multiClass: ClassProvider<Plugin> = { provide: PLUGIN, useClass: FeaturePlugin, multi: true }
+const multiValue: ValueProvider<Plugin> = { provide: PLUGIN, useValue: new FeaturePlugin(), multi: true }
+const multiFactory: FactoryProvider<Plugin> = { provide: PLUGIN, useFactory: () => new FeaturePlugin(), multi: true }
+const multiExisting: ExistingProvider<Plugin> = { provide: PLUGIN, useExisting: FeaturePlugin, multi: true }
+
+const notMulti: ClassProvider<Plugin> = { provide: PLUGIN, useClass: FeaturePlugin, multi: false }
+const notMultiShorthand: ClassProvider<Plugin> = { useClass: FeaturePlugin, multi: false }
+
+const multiInUnion: Provider[] = [multiClass, multiValue, multiFactory, multiExisting, notMulti, notMultiShorthand]
+void multiInUnion
+
+// The shorthand is the one class spelling that cannot join a collection. It registers the class under
+// ITSELF, and a collection whose only member is that class is just the class — so `multi: true` requires
+// an explicit `provide`, and the two class spellings differ by more than a keystroke.
+
+// @ts-expect-error the provide-less `useClass` shorthand cannot carry `multi`.
+const multiShorthand: Provider = { useClass: FeaturePlugin, multi: true }
+void multiShorthand
+
+// @ts-expect-error the same under the form's own name, where both class spellings are in view.
+const multiShorthandClassProvider: ClassProvider<Plugin> = { useClass: FeaturePlugin, multi: true }
+void multiShorthandClassProvider
+
+// @ts-expect-error a value provider still needs its token, `multi` or not.
+const provideLessMultiValue: Provider = { useValue: new FeaturePlugin(), multi: true }
+void provideLessMultiValue
+
+// Reaching a collection from a factory — the `inject` grammar.
+// ========================================
+//
+// An entry is a bare token or one of two NAMED object arms discriminated by `multi`, each excluding what
+// the other owns — the same diagonal the provider grammar uses, not an anonymous intersection. The arms
+// exist because `mode` is not one type here: a collection read has three modes and a single read has two,
+// so the enum `mode` is drawn from follows the discriminant.
+//
+// Note what is NOT pinned below: `useFactory` is `(...args: any[]) => T`, so the parameters are not
+// inferred from the `inject` tuple and there is no inferred-argument type to assert. Annotating them, as
+// `factoryProvider` above does, is the whole of the typing a consumer gets.
+
+const requiredDependency: OptionalFactoryDependency<Plugin> = { token: PLUGIN }
+const optionalDependency: OptionalFactoryDependency<Plugin> = { token: PLUGIN, optional: true }
+const selfDependency: OptionalFactoryDependency<Plugin> = { token: PLUGIN, mode: "self" }
+const collectionDependency: MultiFactoryDependency<Plugin> = { token: PLUGIN, multi: true }
+const chainedDependency: MultiFactoryDependency<Plugin> = { token: PLUGIN, multi: true, mode: ResolveAllMode.Chained }
+
+// All of them are `FactoryDependency`s, alongside the bare-token shorthand.
+const injectGrammar: FactoryDependency[] = [
+    PLUGIN,
+    requiredDependency,
+    optionalDependency,
+    selfDependency,
+    collectionDependency,
+    chainedDependency,
+]
+void injectGrammar
+
+// And they are accepted inline, where excess-property checking against the union does the real work.
+const collectingFactory: FactoryProvider<Plugin[]> = {
+    provide: Token<Plugin[]>("consumer.plugin.snapshot"),
+    useFactory: (plugins: Plugin[]) => plugins,
+    inject: [{ token: PLUGIN, multi: true, mode: "nearest" }],
+}
+void collectingFactory
+
+// @ts-expect-error `optional` is not on the collection arm: `resolveAll` on an unregistered token reads
+// `[]`, so there is no missing state to opt into.
+const optionalCollection: FactoryDependency = { token: PLUGIN, multi: true, optional: true }
+void optionalCollection
+
+// @ts-expect-error the collection arm takes `ResolveAllMode` and nothing else.
+const bogusCollectionMode: FactoryDependency = { token: PLUGIN, multi: true, mode: "bogus" }
+void bogusCollectionMode
+
+// @ts-expect-error `chained` is the one mode the single arm cannot have — one value has nothing to
+// accumulate — and without `multi: true` this is the single arm.
+const chainedSingleDependency: FactoryDependency = { token: PLUGIN, mode: "chained" }
+void chainedSingleDependency
+
+// The same refusal reached through the provider, where the array element is what gets checked.
+const chainedInsideProvider: FactoryProvider<Plugin> = {
+    provide: PLUGIN,
+    useFactory: () => new FeaturePlugin(),
+    // @ts-expect-error `chained` on an entry with no `multi: true`.
+    inject: [{ token: PLUGIN, mode: "chained" }],
+}
+void chainedInsideProvider
 
 const moduleProviders: Provider[] = [
     constructorProvider,
@@ -848,12 +1034,14 @@ function UserView(): ReactElement {
     type _ResolveBySymbol = Expect<Equals<typeof config, AppConfig>>
     type _ResolveBySymbolIsNotAny = Expect<Not<IsAny<typeof config>>>
 
-    // The non-recursive overload must not change the resolved type.
-    const ownConfig = useResolveSafe(CONFIG, false)
-    type _ResolveSafeBySymbol = Expect<Equals<typeof ownConfig, AppConfig | undefined>>
+    // The mode must not change the resolved type.
+    const ownConfig = useResolveOptional(CONFIG, "self")
+    type _ResolveOptionalBySymbol = Expect<Equals<typeof ownConfig, AppConfig | undefined>>
+    type _UseResolveMode = Expect<Equals<Parameters<typeof useResolve>[1], ResolveMode | undefined>>
+    type _UseResolveOptionalMode = Expect<Equals<Parameters<typeof useResolveOptional>[1], ResolveMode | undefined>>
 
-    const maybeStore = useResolveSafe(UserStore)
-    type _ResolveSafeByClass = Expect<Equals<typeof maybeStore, UserStore | undefined>>
+    const maybeStore = useResolveOptional(UserStore)
+    type _ResolveOptionalByClass = Expect<Equals<typeof maybeStore, UserStore | undefined>>
 
     const plugins = useResolveAll(PLUGIN)
     type _ResolveAllBySymbol = Expect<Equals<typeof plugins, Plugin[]>>
@@ -865,8 +1053,19 @@ function UserView(): ReactElement {
     const registries = useResolveAll(PluginRegistry)
     type _ResolveAllByClass = Expect<Equals<typeof registries, PluginRegistry[]>>
 
-    // @ts-expect-error `useResolveAll` takes a token and nothing else — the `recursive` parameter is gone.
-    void useResolveAll(PLUGIN, false)
+    // The modes reach the hook surface too — same names, same default, same semantics as every other
+    // multi read, and unlike the decorator the hook carries the whole set including `"self"`. None of
+    // them changes the resolved type.
+    const ownPlugins = useResolveAll(PLUGIN, "self")
+    type _ResolveAllOwnOnly = Expect<Equals<typeof ownPlugins, Plugin[]>>
+
+    const nearestPlugins = useResolveAll(PLUGIN, ResolveAllMode.Nearest)
+    type _ResolveAllNearest = Expect<Equals<typeof nearestPlugins, Plugin[]>>
+    type _UseResolveAllMode = Expect<Equals<Parameters<typeof useResolveAll>[1], ResolveAllMode | undefined>>
+    void nearestPlugins
+
+    // @ts-expect-error a mode is a string, not inversify's options object.
+    void useResolveAll(PLUGIN, { chained: false })
 
     const container = useContainer()
     type _UseContainer = Expect<Equals<typeof container, Container>>
@@ -1082,19 +1281,65 @@ export function inspect(container: Container): string {
     const api = child.resolve(ApiClient)
     type _Resolve = Expect<Equals<typeof api, ApiClient>>
 
-    const maybeConfig = child.resolveSafe(CONFIG, false)
-    type _ResolveSafe = Expect<Equals<typeof maybeConfig, AppConfig | undefined>>
+    const maybeConfig = child.resolveOptional(CONFIG, "self")
+    type _ResolveOptional = Expect<Equals<typeof maybeConfig, AppConfig | undefined>>
+    type _ContainerResolveMode = Expect<Equals<Parameters<Container["resolve"]>[1], ResolveMode | undefined>>
 
     const plugins = child.resolveAll(PLUGIN)
     type _ResolveAll = Expect<Equals<typeof plugins, Plugin[]>>
 
-    const registered = child.isRegistered(CONFIG, false)
+    // The same modes the other multi reads have — `self` is this container's own bindings alone, `nearest`
+    // is the substrate's unchained walk with its ancestor fallback. Neither changes what a collection is
+    // made of.
+    const ownPlugins = child.resolveAll(PLUGIN, "self")
+    type _ResolveAllOwn = Expect<Equals<typeof ownPlugins, Plugin[]>>
+    type _ContainerResolveAllMode = Expect<Equals<Parameters<Container["resolveAll"]>[1], ResolveAllMode | undefined>>
+
+    const nearestPlugins = child.resolveAll(PLUGIN, ResolveAllMode.Nearest)
+    type _ResolveAllNearest = Expect<Equals<typeof nearestPlugins, Plugin[]>>
+    void nearestPlugins
+
+    const registered = child.isRegistered(CONFIG, "self")
     type _IsRegistered = Expect<Equals<typeof registered, boolean>>
+    type _ContainerIsRegisteredMode = Expect<
+        Equals<Parameters<Container["isRegistered"]>[1], RegistrationMode | undefined>
+    >
+
+    const registeredByMember = child.isRegistered(CONFIG, RegistrationMode.Nearest)
+    type _IsRegisteredByMember = Expect<Equals<typeof registeredByMember, boolean>>
+    void registeredByMember
+
+    // @ts-expect-error the `recursive` boolean is gone; a single read takes a mode.
+    void child.isRegistered(CONFIG, false)
+
+    // A registration question has no `chained`: there is nothing to accumulate about "is this token
+    // registered". The member spelling is refused for the same reason as the literal.
+
+    // @ts-expect-error `chained` is a collection width; `RegistrationMode` has no such member.
+    void child.isRegistered(CONFIG, "chained")
+
+    // @ts-expect-error `ResolveAllMode.Chained` is that same string — the enum it came from does not matter.
+    void child.isRegistered(CONFIG, ResolveAllMode.Chained)
 
     child.onResolution(CONFIG, (instance) => {
         type _OnResolutionInstance = Expect<Equals<typeof instance, AppConfig>>
         void instance
     })
+
+    // One observation concept reaches consumers. The predicate-filtered variant the module lifecycle adopts
+    // through (`onPredicateResolution`) is `@internal` and removed from the published declarations by
+    // `stripInternal` in tsconfig.build.json. `onSingletonResolution` was its earlier, narrower name and is
+    // gone outright — neither may appear.
+    //
+    // THIS PIN IS LOAD-BEARING: it is the only thing holding that flag in place. Drop `stripInternal` and
+    // the member reappears in `dist`, the assertion below stops being true, and `typecheck:consumers` goes
+    // red — which is exactly the point. Do not "fix" a failure here by deleting the pin.
+    type _PublicObservationExists = Expect<HasKey<Container, "onResolution">>
+    type _InternalObservationIsHidden = Expect<Not<HasKey<Container, "onPredicateResolution">>>
+    type _RenamedObservationIsGone = Expect<Not<HasKey<Container, "onSingletonResolution">>>
+
+    // @ts-expect-error `onPredicateResolution` is internal — it is not on the published Container.
+    child.onPredicateResolution(CONFIG, () => undefined, () => true)
 
     const fallbackConfig: AppConfig = { baseUrl: "", retries: 0 }
     const configOrValue = child.resolveOr(CONFIG, fallbackConfig)
@@ -1135,6 +1380,9 @@ void new LazyToken(() => ApiClient)
 const publicValueSurface = [
     Container,
     Scope,
+    ResolveMode,
+    ResolveAllMode,
+    RegistrationMode,
     Inject,
     InjectAll,
     Injectable,
@@ -1150,7 +1398,7 @@ const publicValueSurface = [
     useModuleContext,
     useModuleRebuild,
     useResolve,
-    useResolveSafe,
+    useResolveOptional,
     useResolveAll,
     usePropsRef,
     ModuleRegistry,
@@ -1164,8 +1412,15 @@ const publicValueSurface = [
 // 24 -> 25 on the 0.5.0 rework: `ModuleMetadata` and public `useModule` left with the modes; `App`,
 // `Module` and `AppProvider` arrived with the App/Module classes. 25 -> 27 with the element holders,
 // `Ref` and `RefMap`. Both are classes, so each is a value and a type under one name — the type surface
-// below is unchanged by them, exactly as it is by `PropsRef`.
-type _PublicValueSurfaceSize = Expect<Equals<typeof publicValueSurface.length, 27>>
+// below is unchanged by them, exactly as it is by `PropsRef`. 27 -> 29 when the `recursive` / `chained`
+// booleans became `ResolveMode` and `ResolveAllMode`: an `Enum` is a value and a type under one name like
+// `Scope`, but unlike `Scope` a consumer annotates with these directly, so they are counted in both lists.
+// 29 -> 30 when `isRegistered` moved off `ResolveMode` onto its own `RegistrationMode`: same members as
+// `ResolveMode` today, separate enum because it is a registration-axis question rather than a resolution
+// one, and a third `Enum` on the same idiom is a third name in both lists. Still 30 after
+// `useResolveSafe` -> `useResolveOptional`: a rename replaces a name in this list rather than adding one,
+// so the count holding is the evidence that nothing else moved with it.
+type _PublicValueSurfaceSize = Expect<Equals<typeof publicValueSurface.length, 30>>
 
 // The `./types` subpath must carry the entire public type surface. Every exported name is referenced
 // once.
@@ -1177,8 +1432,14 @@ type PublicTypeSurface = [
     FactoryDependency,
     FactoryProvider<Logger>,
     InjectionToken<AppConfig>,
+    MultiFactoryDependency<Plugin>,
     OptionalFactoryDependency<AppConfig>,
     Provider,
+    ResolveMode,
+    ResolveAllMode,
+    RegistrationMode,
+    SelfClassProvider<ManuallyDecorated>,
+    TokenClassProvider<UserStore>,
     ValueProvider<AppConfig>,
     ModuleParams,
     ModuleHook,
@@ -1200,8 +1461,31 @@ type PublicTypeSurface = [
 // `ModuleMetadataProvider` with the ModuleMetadata concept; `ModuleParams` and `AppProviderProps`
 // arrived with the App/Module classes. 26 -> 24 when `onModuleError` was removed, taking
 // `ModuleErrorHook` and `ModulePhase` with it. Unchanged by the provide-less `useClass` shorthand: it is
-// a second member of `ClassProvider`, not a new name.
-type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 24>>
+// a second member of `ClassProvider`, not a new name. 24 -> 26 with multi-providers, which turned that
+// second member into a second TYPE: `multi: true` requires a `provide` and the shorthand has none, so
+// `ClassProvider` is now a union — and a union alias is only portable when a consumer can NAME its
+// members. Without these two exports, `export const x = { someClassProvider }` fails to emit its
+// declarations with TS2742. 26 -> 28 with the read modes: `ResolveMode` and `ResolveAllMode` are exported
+// from `./types` as well as from the root, because a consumer that stores or forwards a mode
+// (`function read(mode: ResolveAllMode)`) needs to NAME it, and a types-only consumer has no root import
+// to reach for. Pinned here through the root binding, which carries both meanings of each name. 28 -> 29
+// with `RegistrationMode`, `isRegistered`'s own mode, for exactly the same reason. 29 -> 30 when a factory
+// dependency gained a collection arm: `MultiFactoryDependency` is the same union-member argument as the two
+// `ClassProvider` members — `FactoryDependency` is a union, and a consumer storing or forwarding one arm of
+// it has to be able to NAME that arm. The value surface is untouched; all three are types only. Still 30
+// when `multi: false` became a legal provider spelling: the token-bearing forms widened to `multi?:
+// boolean` and the shorthand to `multi?: false`, both inside shapes this list already names.
+type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 30>>
+
+// The three modes are the only names in that list a consumer imports from the ROOT as values, so the claim
+// that `./types` also carries them cannot ride on the import block above. Pinned directly instead.
+type _ResolveModeOnTypesSubpath = Expect<Equals<import("@luminelabs/react-di/types").ResolveMode, ResolveMode>>
+type _ResolveAllModeOnTypesSubpath = Expect<
+    Equals<import("@luminelabs/react-di/types").ResolveAllMode, ResolveAllMode>
+>
+type _RegistrationModeOnTypesSubpath = Expect<
+    Equals<import("@luminelabs/react-di/types").RegistrationMode, RegistrationMode>
+>
 
 // Keep the module-scope constants that exist only to be typechecked from being flagged as dead by a
 // future `noUnusedLocals`, and give the file a single exported value to hang everything on.

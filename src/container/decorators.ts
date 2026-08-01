@@ -11,8 +11,11 @@ export function Injectable(): ClassDecorator {
 
 export const Inject = inject
 
-export function InjectAll(token: Parameters<typeof multiInject>[0]): ReturnType<typeof multiInject> {
-    return multiInject(token, { chained: true })
+export function InjectAll(
+    token: Parameters<typeof multiInject>[0],
+    mode: "nearest" | "chained" = "chained"
+): ReturnType<typeof multiInject> {
+    return multiInject(token, { chained: mode === "chained" })
 }
 
 export const Optional = optional

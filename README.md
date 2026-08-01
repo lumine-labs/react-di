@@ -24,7 +24,7 @@ This package provides that missing layer without turning DI into a state manager
 - Declarative rebuilds — `rebuildOn={[deps]}` replaces a module's container and instances when inputs change
 - Full provider grammar: class / value / factory / alias, singleton + transient scopes, lazy construction
 - Compile-time provider safety — mixing implementation keys or missing tokens fails in TypeScript and loudly at runtime
-- Hooks: `useResolve`, `useResolveSafe`, `useResolveAll`, `useModule`, `useContainer`, `useModuleRebuild`, `usePropsRef`
+- Hooks: `useResolve`, `useResolveOptional`, `useResolveAll`, `useModule`, `useContainer`, `useModuleRebuild`, `usePropsRef`
 - Props bridging into services (`PropsRef`) for module boundaries driven by component props
 - Strict error semantics — failed init/mount propagates to your ErrorBoundary, teardown is fail-safe, nothing fails silently
 - SSR-ready — `renderToString` + hydration work out of the box

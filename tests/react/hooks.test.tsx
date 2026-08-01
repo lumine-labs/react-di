@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useState, type ReactNode } from "react"
 
 import { Container, Injectable, Scope, decorate } from "../../src/container/index.js"
+import type { ResolveAllMode, ResolveMode } from "../../src/container/index.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useContainer, useModuleContext, useModuleRebuild } from "../../src/react/hooks/useModuleContext.js"
-import { useResolve, useResolveSafe } from "../../src/react/hooks/useResolve.js"
+import { useResolve, useResolveOptional } from "../../src/react/hooks/useResolve.js"
 import { useResolveAll } from "../../src/react/hooks/useResolveAll.js"
 import { Root } from "../setup/react.js"
 
@@ -22,6 +23,8 @@ decorate(Injectable(), Counter)
 const TRANSIENT_COUNTER = { provide: Counter, useClass: Counter, scope: Scope.Transient } as const
 
 const SHARED = Symbol.for("tests.hooks.shared")
+/** A collection token: every provider for it declares `multi: true`, which is what `resolveAll` reads. */
+const COLLECTED = Symbol.for("tests.hooks.collected")
 const MISSING = Symbol.for("tests.hooks.missing")
 const THROWING = Symbol.for("tests.hooks.throwing")
 
@@ -91,11 +94,11 @@ describe("useResolve", () => {
         restore()
     })
 
-    it("throws with recursive=false when the token lives only in the parent", () => {
+    it('throws in "self" mode when the token lives only in the parent', () => {
         const restore = silenceReactErrorLog()
 
         function Probe(): ReactNode {
-            useResolve(SHARED, false)
+            useResolve(SHARED, "self")
             return null
         }
 
@@ -108,7 +111,9 @@ describe("useResolve", () => {
                 </Root>
             )
         ).toThrowError(
-            new Error("Token tests.hooks.shared is not registered in this container (searched that container only).")
+            new Error(
+                'Token tests.hooks.shared is not registered in this container (mode "self" reads its own bindings only). Use "nearest" to search its ancestors too.'
+            )
         )
 
         restore()
@@ -201,12 +206,12 @@ describe("useResolve", () => {
     })
 })
 
-describe("useResolveSafe", () => {
+describe("useResolveOptional", () => {
     it("returns undefined for a missing token instead of throwing", () => {
         let seen: unknown = "sentinel"
 
         function Probe(): ReactNode {
-            seen = useResolveSafe(MISSING)
+            seen = useResolveOptional(MISSING)
             return null
         }
 
@@ -219,14 +224,16 @@ describe("useResolveSafe", () => {
         expect(seen).toBeUndefined()
     })
 
-    it("returns undefined with recursive=false for a parent-only token", () => {
+    it('returns undefined in "self" mode for a parent-only token, and re-reads when the mode changes', () => {
+        // The snapshot compares the MODE now, not a boolean: flipping it has to invalidate the memo, or
+        // the hook would keep answering with the width it was first called at.
         const seen: unknown[] = []
         let flip: (() => void) | null = null
 
         function Probe(): ReactNode {
-            const [recursive, setRecursive] = useState(true)
-            flip = () => setRecursive(false)
-            seen.push(useResolveSafe<string>(SHARED, recursive))
+            const [mode, setMode] = useState<ResolveMode>("nearest")
+            flip = () => setMode("self")
+            seen.push(useResolveOptional<string>(SHARED, mode))
             return null
         }
 
@@ -248,7 +255,7 @@ describe("useResolveSafe", () => {
         const restore = silenceReactErrorLog()
 
         function Probe(): ReactNode {
-            useResolveSafe(THROWING)
+            useResolveOptional(THROWING)
             return null
         }
 
@@ -279,8 +286,8 @@ describe("useResolveSafe", () => {
         let bump: (() => void) | null = null
 
         function Probe(): ReactNode {
-            seen.push(useResolveSafe(Counter))
-            missing.push(useResolveSafe(MISSING))
+            seen.push(useResolveOptional(Counter))
+            missing.push(useResolveOptional(MISSING))
             return null
         }
 
@@ -309,14 +316,14 @@ describe("useResolveAll", () => {
         let seen: string[] = []
 
         function Probe(): ReactNode {
-            seen = useResolveAll<string>(SHARED)
+            seen = useResolveAll<string>(COLLECTED)
             return null
         }
 
         render(
-            <Root providers={[{ provide: SHARED, useValue: "root" }]}>
-                <ModuleProvider providers={[{ provide: SHARED, useValue: "child" }]}>
-                    <ModuleProvider providers={[{ provide: SHARED, useValue: "grandchild" }]}>
+            <Root providers={[{ provide: COLLECTED, useValue: "root", multi: true }]}>
+                <ModuleProvider providers={[{ provide: COLLECTED, useValue: "child", multi: true }]}>
+                    <ModuleProvider providers={[{ provide: COLLECTED, useValue: "grandchild", multi: true }]}>
                         <Probe />
                     </ModuleProvider>
                 </ModuleProvider>
@@ -324,6 +331,76 @@ describe("useResolveAll", () => {
         )
 
         expect(seen).toEqual(["grandchild", "child", "root"])
+    })
+
+    it("collects the module's own contributions only in self and nearest mode", () => {
+        const seen: Record<string, string[]> = {}
+
+        function Probe(): ReactNode {
+            seen.self = useResolveAll<string>(COLLECTED, "self")
+            seen.nearest = useResolveAll<string>(COLLECTED, "nearest")
+            return null
+        }
+
+        render(
+            <Root providers={[{ provide: COLLECTED, useValue: "root", multi: true }]}>
+                <ModuleProvider providers={[{ provide: COLLECTED, useValue: "child", multi: true }]}>
+                    <Probe />
+                </ModuleProvider>
+            </Root>
+        )
+
+        expect(seen).toEqual({ self: ["child"], nearest: ["child"] })
+    })
+
+    it("separates self from nearest when the module contributes nothing", () => {
+        // Owner ruling 2026-08-01: the hook shares inversify's unchained semantics like every other read
+        // surface, and that is what `nearest` names. `self` is the same read minus the ancestor fallback.
+        const seen: Record<string, string[]> = {}
+
+        function Probe(): ReactNode {
+            seen.self = useResolveAll<string>(COLLECTED, "self")
+            seen.nearest = useResolveAll<string>(COLLECTED, "nearest")
+            return null
+        }
+
+        render(
+            <Root providers={[{ provide: COLLECTED, useValue: "root", multi: true }]}>
+                <ModuleProvider>
+                    <Probe />
+                </ModuleProvider>
+            </Root>
+        )
+
+        expect(seen).toEqual({ self: [], nearest: ["root"] })
+    })
+
+    it("re-reads when the mode changes, not only when the token or container does", () => {
+        const seen: string[][] = []
+        let flip: (() => void) | null = null
+
+        function Probe(): ReactNode {
+            const [mode, setMode] = useState<ResolveAllMode>("chained")
+            flip = () => setMode("self")
+            seen.push(useResolveAll<string>(COLLECTED, mode))
+            return null
+        }
+
+        render(
+            <Root providers={[{ provide: COLLECTED, useValue: "root", multi: true }]}>
+                <ModuleProvider providers={[{ provide: COLLECTED, useValue: "child", multi: true }]}>
+                    <Probe />
+                </ModuleProvider>
+            </Root>
+        )
+
+        expect(seen).toEqual([["child", "root"]])
+
+        act(() => flip?.())
+        expect(seen).toEqual([
+            ["child", "root"],
+            ["child"],
+        ])
     })
 
     it("returns an empty array for a token nobody registered", () => {
@@ -349,7 +426,7 @@ describe("useResolveAll", () => {
         let rebuild: (() => void) | null = null
 
         function Probe(): ReactNode {
-            seen.push(useResolveAll<string>(SHARED))
+            seen.push(useResolveAll<string>(COLLECTED))
             rebuild = useModuleRebuild()
             return null
         }
@@ -359,7 +436,7 @@ describe("useResolveAll", () => {
             bump = () => setTick((value) => value + 1)
             return (
                 <Root>
-                    <ModuleProvider providers={[{ provide: SHARED, useValue: "child" }]}>
+                    <ModuleProvider providers={[{ provide: COLLECTED, useValue: "child", multi: true }]}>
                         <Probe />
                         <span>{tick}</span>
                     </ModuleProvider>

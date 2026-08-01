@@ -132,7 +132,7 @@ describe("parallel apps", () => {
         // Separate containers, no cross-talk: each subtree reads its own app's binding.
         expect(first.container).not.toBe(second.container)
         expect(seen).toEqual(["first", "second"])
-        expect(first.container.isRegistered(SHARED, false)).toBe(true)
+        expect(first.container.isRegistered(SHARED, "self")).toBe(true)
         expect(second.container.resolve(SHARED)).toBe("second")
 
         // Independent lifecycles: unmounting the whole tree unmounts both, neither destroys.
@@ -269,7 +269,7 @@ describe("ModuleProvider — nesting", () => {
 
         expect(child).not.toBe(parent)
         expect(child!.resolve(ROOT_ONLY)).toBe("root-only")
-        expect(child!.isRegistered(ROOT_ONLY, false)).toBe(false)
+        expect(child!.isRegistered(ROOT_ONLY, "self")).toBe(false)
         expect(parent!.isRegistered(SHARED)).toBe(false)
     })
 

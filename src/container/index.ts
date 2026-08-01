@@ -1,6 +1,6 @@
 export { Container } from "./container.js"
 
-export { Scope } from "./container.types.js"
+export { RegistrationMode, ResolveAllMode, ResolveMode, Scope } from "./container.types.js"
 
 export type {
     AbstractConstructor,
@@ -10,8 +10,11 @@ export type {
     FactoryDependency,
     FactoryProvider,
     InjectionToken,
+    MultiFactoryDependency,
     OptionalFactoryDependency,
     Provider,
+    SelfClassProvider,
+    TokenClassProvider,
     ValueProvider,
 } from "./container.types.js"
 

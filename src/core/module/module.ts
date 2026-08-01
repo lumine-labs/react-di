@@ -25,6 +25,7 @@ export type ProviderSnapshot = {
     scope?: Scope // absent = singleton
     lazy?: true
     aliasOf?: InjectionToken<unknown> // useExisting target
+    multi?: true // one of several contributions to a collection; the token repeats
 }
 
 // Module
@@ -135,6 +136,7 @@ export class Module {
             if ("lazy" in provider && provider.lazy) snapshot.lazy = true
             if ("useExisting" in provider) snapshot.aliasOf = provider.useExisting
             if ("scope" in provider && provider.scope) snapshot.scope = provider.scope
+            if ("multi" in provider && provider.multi) snapshot.multi = true
 
             return snapshot
         })

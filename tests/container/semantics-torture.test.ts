@@ -182,9 +182,9 @@ describe("singleton scope is per-container", () => {
         expect(only(log, "ctor")).toEqual(["S#1:ctor"])
 
         // Owned by the parent alone: no descendant reports the token as its own.
-        expect(left.container.isRegistered(Service, false)).toBe(false)
-        expect(grandchild.container.isRegistered(Service, false)).toBe(false)
-        expect(parent.container.isRegistered(Service, false)).toBe(true)
+        expect(left.container.isRegistered(Service, "self")).toBe(false)
+        expect(grandchild.container.isRegistered(Service, "self")).toBe(false)
+        expect(parent.container.isRegistered(Service, "self")).toBe(true)
     })
 
     it("runs one lifecycle for a shared parent instance and two for two sibling declarations", async () => {
@@ -432,7 +432,7 @@ describe("shadowing across three module levels", () => {
 
         // The middle declares nothing, so it reaches straight past itself to the root.
         expect(middle.container.resolve<Instance>(TOKEN)).toBe(rootInstance)
-        expect(middle.container.isRegistered(TOKEN, false)).toBe(false)
+        expect(middle.container.isRegistered(TOKEN, "self")).toBe(false)
 
         // Each level's own consumer got what its own container sees.
         expect(consumed(root, ROOT_CONSUMER)).toBe(rootInstance)
@@ -798,7 +798,7 @@ describe("lazy providers", () => {
         grandchild.mount()
 
         // Registered but not built: `isRegistered` reports on the binding, not on an instance.
-        expect(owner.container.isRegistered(TOKEN, false)).toBe(true)
+        expect(owner.container.isRegistered(TOKEN, "self")).toBe(true)
         expect(Service.instances).toHaveLength(0)
         expect(log).toEqual([])
 

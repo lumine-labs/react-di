@@ -212,7 +212,7 @@ describe("ModuleRegistry — lookup by provider", () => {
     it("ignores an inherited binding — the question is who declared it", () => {
         // a1 resolves SHARED through the chain but declares nothing.
         expect(tree.a1.container.isRegistered(SHARED)).toBe(true)
-        expect(tree.a1.container.isRegistered(SHARED, false)).toBe(false)
+        expect(tree.a1.container.isRegistered(SHARED, "self")).toBe(false)
         expect(registryOf(tree.a).findDescendantsByProvider(SHARED)).toEqual([])
     })
 

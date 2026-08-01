@@ -319,7 +319,7 @@ describe("useClass without `provide`", () => {
         const child = parent.fork()
 
         expect(child.resolve(Service)).toBe(parent.resolve(Service))
-        expect(child.isRegistered(Service, false)).toBe(false)
+        expect(child.isRegistered(Service, "self")).toBe(false)
     })
 
     it("is observable, like every other own binding", () => {

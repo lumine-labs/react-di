@@ -28,13 +28,13 @@ describe("construction", () => {
 
         // Reads travel up the fork chain, writes do not travel down.
         expect(child.container.resolve(PARENT_ONLY)).toBe("parent")
-        expect(child.container.isRegistered(PARENT_ONLY, false)).toBe(false)
+        expect(child.container.isRegistered(PARENT_ONLY, "self")).toBe(false)
         expect(app.container.isRegistered(CHILD_ONLY)).toBe(false)
     })
 
     it("registers the four system providers on its own container", () => {
         const module = new App()
-        const own = (token: Parameters<Container["isRegistered"]>[0]) => module.container.isRegistered(token, false)
+        const own = (token: Parameters<Container["isRegistered"]>[0]) => module.container.isRegistered(token, "self")
 
         expect([own(Module), own(Resolver), own(ModuleRegistry), own(ModuleLifecycle)]).toEqual([
             true,
@@ -57,7 +57,7 @@ describe("construction", () => {
         const Plain = plain("wired")
         const module = new App({ providers: [Plain, { provide: CHILD_ONLY, useValue: 7 }] })
 
-        expect(module.container.isRegistered(Plain as never, false)).toBe(true)
+        expect(module.container.isRegistered(Plain as never, "self")).toBe(true)
         expect(module.container.resolve(CHILD_ONLY)).toBe(7)
     })
 

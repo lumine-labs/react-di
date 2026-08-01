@@ -11,8 +11,8 @@ import { plain } from "../setup/helpers.js"
 // Module.providers — the declared snapshot.
 // ========================================
 //
-// `providers` is a declared snapshot, reduced to `{ token, scope?, lazy?, aliasOf? }` — the shape the
-// lifecycle needs to decide what to build eagerly and what to skip. Nothing constructible survives into
+// `providers` is a declared snapshot, reduced to `{ token, scope?, lazy?, aliasOf?, multi? }` — the shape
+// the lifecycle needs to decide what to build eagerly and what to skip. Nothing constructible survives into
 // it: no instances, no implementation classes, no factory closures.
 
 const SYSTEM_TOKENS = [Module, Resolver, ModuleRegistry, ModuleLifecycle]
@@ -118,6 +118,32 @@ describe("user providers", () => {
         expect(values).not.toContain(instance)
         expect(values).not.toContain(factory)
         expect(values).not.toContain(Impl)
+    })
+
+    it("keeps one entry per contribution to a collection, each marked multi", () => {
+        const First = plain("first") as unknown as Constructor
+        const Second = plain("second") as unknown as Constructor
+        const module = new App({
+            providers: [
+                { provide: VALUE, useClass: First, multi: true },
+                { provide: VALUE, useClass: Second, multi: true },
+                { provide: VALUE, useExisting: ALIAS_TARGET, multi: true },
+            ],
+        })
+
+        // The token repeats — that repetition IS the collection, and the eager pass groups on it.
+        expect(userSnapshot(module)).toEqual([
+            { token: VALUE, multi: true },
+            { token: VALUE, multi: true },
+            { token: VALUE, aliasOf: ALIAS_TARGET, multi: true },
+        ])
+    })
+
+    it("leaves `multi` off when the provider is silent about it", () => {
+        const Impl = plain("impl")
+        const module = new App({ providers: [{ provide: ALIAS_TARGET, useClass: Impl as never }] })
+
+        expect(userSnapshot(module)).toEqual([{ token: ALIAS_TARGET }])
     })
 
     it("leaves `scope` off entirely when it is explicitly undefined", () => {

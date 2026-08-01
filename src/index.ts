@@ -2,7 +2,7 @@
 // ========================================
 
 export { Container } from "./container/container.js"
-export { Scope } from "./container/container.types.js"
+export { RegistrationMode, ResolveAllMode, ResolveMode, Scope } from "./container/container.types.js"
 export { Inject, InjectAll, Injectable, LazyToken, Optional, decorate } from "./container/decorators.js"
 
 // Modules
@@ -17,7 +17,7 @@ export { createModuleComponent } from "./react/factories/createModuleComponent.j
 // ========================================
 
 export { useContainer, useModule, useModuleContext, useModuleRebuild } from "./react/hooks/useModuleContext.js"
-export { useResolve, useResolveSafe } from "./react/hooks/useResolve.js"
+export { useResolve, useResolveOptional } from "./react/hooks/useResolve.js"
 export { useResolveAll } from "./react/hooks/useResolveAll.js"
 export { usePropsRef } from "./react/hooks/usePropsRef.js"
 

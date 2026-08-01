@@ -9,9 +9,15 @@ export type {
     FactoryDependency,
     FactoryProvider,
     InjectionToken,
+    MultiFactoryDependency,
     OptionalFactoryDependency,
     Provider,
+    RegistrationMode,
+    ResolveAllMode,
+    ResolveMode,
     Scope,
+    SelfClassProvider,
+    TokenClassProvider,
     ValueProvider,
 } from "./container/container.types.js"
 

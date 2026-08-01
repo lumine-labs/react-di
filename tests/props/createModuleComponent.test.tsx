@@ -6,7 +6,7 @@ import { createModuleComponent } from "../../src/react/factories/createModuleCom
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { PropsRef, type PropsAdapter } from "../../src/core/providers/props-ref/props-ref.provider.js"
 import { useContainer, useModuleContext } from "../../src/react/hooks/useModuleContext.js"
-import { useResolve, useResolveSafe } from "../../src/react/hooks/useResolve.js"
+import { useResolve, useResolveOptional } from "../../src/react/hooks/useResolve.js"
 import { Container } from "../../src/container/index.js"
 import type { InjectionToken } from "../../src/container/index.js"
 import { Root } from "../setup/react.js"
@@ -81,8 +81,8 @@ describe("createModuleComponent with a params object", () => {
         let flag: Flag | undefined
 
         function Probe() {
-            bridged = useResolveSafe(PropsRef) as PropsRef<UserProps> | undefined
-            flag = useResolveSafe(Flag)
+            bridged = useResolveOptional(PropsRef) as PropsRef<UserProps> | undefined
+            flag = useResolveOptional(Flag)
             return null
         }
 
@@ -245,8 +245,8 @@ describe("createModuleComponent with { adapter, token }", () => {
         let setPoint: ((point: Point) => void) | null = null
 
         function Probe() {
-            boxed = useResolveSafe(CUSTOM)
-            byClass = useResolveSafe(PropsRef)
+            boxed = useResolveOptional(CUSTOM)
+            byClass = useResolveOptional(PropsRef)
             return null
         }
 
@@ -327,8 +327,8 @@ describe("createModuleComponent under a parent", () => {
         expect(bridged).toBe(first)
         expect(bridged!.current).toEqual({ userId: "u2", name: "Cara" })
         // Still a child of the same parent: the bridge resolves locally, `app` does not know it.
-        expect(parent!.isRegistered(PropsRef, false)).toBe(false)
-        expect(containers.at(-1)!.isRegistered(PropsRef, false)).toBe(true)
+        expect(parent!.isRegistered(PropsRef, "self")).toBe(false)
+        expect(containers.at(-1)!.isRegistered(PropsRef, "self")).toBe(true)
     })
 })
 

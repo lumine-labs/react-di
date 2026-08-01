@@ -1,13 +1,32 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { Container, InjectAll, Injectable, Scope, decorate } from "../../src/container/index.js"
+import {
+    Container,
+    InjectAll,
+    Injectable,
+    RegistrationMode,
+    ResolveAllMode,
+    ResolveMode,
+    Scope,
+    decorate,
+} from "../../src/container/index.js"
 import type { Constructor } from "../../src/container/index.js"
 
-// resolve / resolveSafe / resolveOr / resolveAll / isRegistered.
+// resolve / resolveOptional / resolveOr / resolveAll / isRegistered.
 // ========================================
 //
-// `recursive` (default true) is the only knob: true searches the ancestor chain, false searches the
-// container itself. `resolveAll` has no such knob — it is always chained, and so is `@InjectAll`.
+// One vocabulary, two widths. Every read takes a MODE, and the modes are named for what they read rather
+// than for a traversal flag:
+//
+//   self     — this container's own bindings only.
+//   nearest  — the substrate's own walk: `get` for a single read, unchained `getAll` for a collection.
+//   chained  — collections only: every level accumulated, nearest first.
+//
+// Single reads stop at two, because one value cannot be accumulated. `nearest` is the default for a single
+// read and `chained` for `resolveAll`, which is what each family meant before the modes existed.
+//
+// The two families never meet on one token: a single registration refuses `resolveAll` and a collection
+// refuses `resolve`, so a chain is either shadowing (`chain()`) or contributing (`multiChain()`).
 
 function injectableClass<T extends Constructor>(target: T): T {
     decorate(Injectable(), target)
@@ -22,6 +41,18 @@ function chain(): { root: Container; middle: Container; leaf: Container; token: 
     middle.register({ provide: token, useValue: "middle" })
     const leaf = middle.fork()
     leaf.register({ provide: token, useValue: "leaf" })
+    return { root, middle, leaf, token }
+}
+
+/** The same three levels, contributing to one collection instead of shadowing each other. */
+function multiChain(): { root: Container; middle: Container; leaf: Container; token: symbol } {
+    const token = Symbol("PLUGIN")
+    const root = new Container()
+    root.register({ provide: token, useValue: "root", multi: true })
+    const middle = root.fork()
+    middle.register({ provide: token, useValue: "middle", multi: true })
+    const leaf = middle.fork()
+    leaf.register({ provide: token, useValue: "leaf", multi: true })
     return { root, middle, leaf, token }
 }
 
@@ -40,16 +71,17 @@ describe("resolve", () => {
         expect([leaf.resolve(token), middle.resolve(token), root.resolve(token)]).toEqual(["leaf", "middle", "root"])
     })
 
-    it("refuses an inherited token when recursive is false", () => {
+    it("refuses an inherited token in self mode", () => {
         const TOKEN = Symbol("own-only")
         const parent = new Container()
         parent.register({ provide: TOKEN, useValue: "value" })
         const child = parent.fork()
 
-        expect(() => child.resolve(TOKEN, false)).toThrow(
-            /Token own-only is not registered in this container \(searched that container only\)\./
+        expect(() => child.resolve(TOKEN, "self")).toThrow(
+            /Token own-only is not registered in this container \(mode "self" reads its own bindings only\)\. Use "nearest" to search its ancestors too\./
         )
-        expect(parent.resolve(TOKEN, false)).toBe("value")
+        expect(parent.resolve(TOKEN, "self")).toBe("value")
+        expect(child.resolve(TOKEN, "nearest")).toBe("value")
     })
 
     it("throws a chain-aware message for a token nobody declares", () => {
@@ -61,28 +93,29 @@ describe("resolve", () => {
     })
 })
 
-describe("resolveSafe", () => {
+describe("resolveOptional", () => {
     it("returns the instance when registered", () => {
         class Service {}
         injectableClass(Service)
         const container = new Container()
         container.register(Service)
 
-        expect(container.resolveSafe(Service)).toBeInstanceOf(Service)
+        expect(container.resolveOptional(Service)).toBeInstanceOf(Service)
     })
 
     it("returns undefined instead of throwing for a miss", () => {
-        expect(new Container().resolveSafe(Symbol("missing"))).toBeUndefined()
+        expect(new Container().resolveOptional(Symbol("missing"))).toBeUndefined()
     })
 
-    it("returns undefined for an inherited token when recursive is false", () => {
+    it("returns undefined for an inherited token in self mode", () => {
         const TOKEN = Symbol("inherited-safe")
         const parent = new Container()
         parent.register({ provide: TOKEN, useValue: "value" })
         const child = parent.fork()
 
-        expect(child.resolveSafe(TOKEN)).toBe("value")
-        expect(child.resolveSafe(TOKEN, false)).toBeUndefined()
+        expect(child.resolveOptional(TOKEN)).toBe("value")
+        expect(child.resolveOptional(TOKEN, "nearest")).toBe("value")
+        expect(child.resolveOptional(TOKEN, "self")).toBeUndefined()
     })
 
     it("does not construct anything on a miss", () => {
@@ -91,7 +124,7 @@ describe("resolveSafe", () => {
         const container = new Container()
         container.register({ provide: REGISTERED, useFactory: factory })
 
-        expect(container.resolveSafe(Symbol("other"))).toBeUndefined()
+        expect(container.resolveOptional(Symbol("other"))).toBeUndefined()
         expect(factory).not.toHaveBeenCalled()
     })
 })
@@ -124,15 +157,16 @@ describe("resolveOr", () => {
         expect(container.resolveOr(Symbol("miss"), "fallback")).toBe("fallback")
     })
 
-    it("falls back for an inherited token when recursive is false", () => {
+    it("falls back for an inherited token in self mode", () => {
         const TOKEN = Symbol("inherited-or")
         const parent = new Container()
         parent.register({ provide: TOKEN, useValue: "parent" })
         const child = parent.fork()
 
         expect(child.resolveOr(TOKEN, "fallback")).toBe("parent")
-        expect(child.resolveOr(TOKEN, "fallback", false)).toBe("fallback")
-        expect(child.resolveOr(TOKEN, () => "thunk", false)).toBe("thunk")
+        expect(child.resolveOr(TOKEN, "fallback", "nearest")).toBe("parent")
+        expect(child.resolveOr(TOKEN, "fallback", "self")).toBe("fallback")
+        expect(child.resolveOr(TOKEN, () => "thunk", "self")).toBe("thunk")
     })
 
     it("infers `T | F`, never `T | (() => F)`", () => {
@@ -166,23 +200,86 @@ describe("resolveOr", () => {
 
 describe("resolveAll", () => {
     it("collects every declaration in the chain, nearest first", () => {
-        const { leaf, token } = chain()
+        const { leaf, token } = multiChain()
 
         expect(leaf.resolveAll(token)).toEqual(["leaf", "middle", "root"])
     })
 
     it("is chained from a container that declares nothing", () => {
-        const { leaf, token } = chain()
+        const { leaf, token } = multiChain()
         const bare = leaf.fork()
 
         expect(bare.resolveAll(token)).toEqual(["leaf", "middle", "root"])
     })
 
     it("sees only what is at or above it", () => {
-        const { root, middle, token } = chain()
+        const { root, middle, token } = multiChain()
 
         expect(middle.resolveAll(token)).toEqual(["middle", "root"])
         expect(root.resolveAll(token)).toEqual(["root"])
+    })
+
+    it("reads one level in self and nearest mode when the container contributes", () => {
+        const { root, middle, leaf, token } = multiChain()
+
+        // A container with bindings of its own cannot tell the two apart — the fallback that separates
+        // them never fires. That is the whole difference, and the next two tests are where it shows.
+        for (const mode of ["self", "nearest"] as const) {
+            expect(leaf.resolveAll(token, mode)).toEqual(["leaf"])
+            expect(middle.resolveAll(token, mode)).toEqual(["middle"])
+            expect(root.resolveAll(token, mode)).toEqual(["root"])
+        }
+    })
+
+    it("answers [] in self mode from a container with no bindings of its own", () => {
+        const { leaf, token } = multiChain()
+        const bare = leaf.fork()
+
+        // `self` means own-only, and own-only on a container that declares nothing is empty. This is the
+        // mode the module lifecycle's eager pass needs: build what this module declared, nothing else.
+        expect(bare.resolveAll(token, "self")).toEqual([])
+    })
+
+    it("falls back to the nearest contributing ancestor in nearest mode", () => {
+        const { leaf, token } = multiChain()
+        const bare = leaf.fork()
+
+        // Owner ruling 2026-08-01: this is inversify's own unchained `getAll` behaviour (MEASURED in
+        // probe-multiprovider-2-getall-chain 2h), and `nearest` conforms to it rather than guarding. It is
+        // what lets Container, Resolver, useResolveAll and @InjectAll agree — the decorator resolves inside
+        // inversify's planner and could never have joined a guarded contract.
+        // Note the shape: it reads ONE container's bindings — the nearest contributor's, `leaf` alone —
+        // never the chain above it. Accumulation is what `chained` is for.
+        expect(bare.resolveAll(token, "nearest")).toEqual(["leaf"])
+        expect(bare.resolveAll(token, "chained")).toEqual(["leaf", "middle", "root"])
+    })
+
+    it("accepts an enum member and a bare string alike, Scope-style", () => {
+        const { leaf, token } = multiChain()
+        const bare = leaf.fork()
+
+        expect(bare.resolveAll(token, ResolveAllMode.Self)).toEqual(bare.resolveAll(token, "self"))
+        expect(bare.resolveAll(token, ResolveAllMode.Nearest)).toEqual(bare.resolveAll(token, "nearest"))
+        expect(bare.resolveAll(token, ResolveAllMode.Chained)).toEqual(bare.resolveAll(token, "chained"))
+
+        const single = Symbol("both-forms-single")
+        leaf.register({ provide: single, useValue: "value" })
+        expect(leaf.resolve(single, ResolveMode.Self)).toBe(leaf.resolve(single, "self"))
+        expect(leaf.resolve(single, ResolveMode.Nearest)).toBe(leaf.resolve(single, "nearest"))
+
+        // `isRegistered` takes `RegistrationMode`, not `ResolveMode` — a registration question, not a
+        // resolution one. Same members today, and the member/literal interchange is the same idiom.
+        expect(leaf.isRegistered(single, RegistrationMode.Self)).toBe(leaf.isRegistered(single, "self"))
+        expect(leaf.isRegistered(single, RegistrationMode.Nearest)).toBe(leaf.isRegistered(single, "nearest"))
+
+        // The members ARE the strings — same idiom as `Scope`, no normalization step anywhere.
+        expect([ResolveMode.Self, ResolveMode.Nearest]).toEqual(["self", "nearest"])
+        expect([RegistrationMode.Self, RegistrationMode.Nearest]).toEqual(["self", "nearest"])
+        expect([ResolveAllMode.Self, ResolveAllMode.Nearest, ResolveAllMode.Chained]).toEqual([
+            "self",
+            "nearest",
+            "chained",
+        ])
     })
 
     it("returns [] when nothing in the chain declares the token", () => {
@@ -193,7 +290,7 @@ describe("resolveAll", () => {
         expect(child.resolveAll(Symbol("unbound"))).toEqual([])
     })
 
-    it("returns the same instances resolve would, without rebuilding them", () => {
+    it("returns the same instances every call, without rebuilding them", () => {
         const built: string[] = []
         class Service {
             constructor() {
@@ -201,16 +298,18 @@ describe("resolveAll", () => {
             }
         }
         injectableClass(Service)
+        const TOKEN = Symbol("all-instances")
 
         const root = new Container()
-        root.register(Service)
+        root.register({ provide: TOKEN, useClass: Service, multi: true })
         const child = root.fork()
-        child.register(Service)
+        child.register({ provide: TOKEN, useClass: Service, multi: true })
 
-        const all = child.resolveAll(Service)
+        const all = child.resolveAll(TOKEN)
         expect(all).toHaveLength(2)
-        expect(all[0]).toBe(child.resolve(Service))
-        expect(all[1]).toBe(root.resolve(Service))
+        expect(all[0]).toBe(child.resolveAll(TOKEN, "self")[0])
+        expect(all[1]).toBe(root.resolveAll(TOKEN)[0])
+        expect(all).toEqual(child.resolveAll(TOKEN))
         expect(built).toHaveLength(2)
     })
 
@@ -220,7 +319,7 @@ describe("resolveAll", () => {
         const TOKEN = Symbol("all-transient")
 
         const container = new Container()
-        container.register({ provide: TOKEN, useClass: Service, scope: Scope.Transient })
+        container.register({ provide: TOKEN, useClass: Service, scope: Scope.Transient, multi: true })
 
         const first = container.resolveAll(TOKEN)
         const second = container.resolveAll(TOKEN)
@@ -252,7 +351,7 @@ describe("@InjectAll", () => {
     }
 
     it("collects the whole chain, exactly as resolveAll does for the same container", () => {
-        const { leaf, token } = chain()
+        const { leaf, token } = multiChain()
         const Collector = collector(token)
         leaf.register(Collector)
 
@@ -263,7 +362,7 @@ describe("@InjectAll", () => {
     })
 
     it("agrees with resolveAll from a container part-way up the chain", () => {
-        const { middle, token } = chain()
+        const { middle, token } = multiChain()
         const Collector = collector(token)
         middle.register(Collector)
 
@@ -275,7 +374,7 @@ describe("@InjectAll", () => {
     })
 
     it("agrees with resolveAll when the injecting container declares nothing itself", () => {
-        const { leaf, token } = chain()
+        const { leaf, token } = multiChain()
         const bare = leaf.fork()
         const Collector = collector(token)
         bare.register(Collector)
@@ -302,9 +401,9 @@ describe("@InjectAll", () => {
         injectableClass(Plugin)
 
         const root = new Container()
-        root.register({ provide: TOKEN, useClass: Plugin })
+        root.register({ provide: TOKEN, useClass: Plugin, multi: true })
         const child = root.fork()
-        child.register({ provide: TOKEN, useClass: Plugin })
+        child.register({ provide: TOKEN, useClass: Plugin, multi: true })
 
         const Collector = collector(TOKEN)
         child.register(Collector)
@@ -323,7 +422,7 @@ describe("isRegistered", () => {
         container.register({ provide: TOKEN, useValue: 1 })
 
         expect(container.isRegistered(TOKEN)).toBe(true)
-        expect(container.isRegistered(TOKEN, false)).toBe(true)
+        expect(container.isRegistered(TOKEN, "self")).toBe(true)
     })
 
     it("distinguishes inherited from own", () => {
@@ -333,7 +432,8 @@ describe("isRegistered", () => {
         const child = parent.fork()
 
         expect(child.isRegistered(TOKEN)).toBe(true)
-        expect(child.isRegistered(TOKEN, false)).toBe(false)
+        expect(child.isRegistered(TOKEN, "nearest")).toBe(true)
+        expect(child.isRegistered(TOKEN, "self")).toBe(false)
     })
 
     it("is false for an unknown token under both modes", () => {
@@ -341,7 +441,7 @@ describe("isRegistered", () => {
         const TOKEN = Symbol("unknown")
 
         expect(container.isRegistered(TOKEN)).toBe(false)
-        expect(container.isRegistered(TOKEN, false)).toBe(false)
+        expect(container.isRegistered(TOKEN, "self")).toBe(false)
     })
 
     it("does not construct the instance it reports on", () => {

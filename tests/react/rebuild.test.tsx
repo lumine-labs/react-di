@@ -6,7 +6,7 @@ import { Container } from "../../src/container/index.js"
 import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useContainer, useModuleContext, useModuleRebuild } from "../../src/react/hooks/useModuleContext.js"
-import { useResolveSafe } from "../../src/react/hooks/useResolve.js"
+import { useResolveOptional } from "../../src/react/hooks/useResolve.js"
 import { Root } from "../setup/react.js"
 import { flush, tracked } from "../setup/helpers.js"
 
@@ -443,7 +443,7 @@ describe("rebuild across a module tree", () => {
         let enable: (() => void) | null = null
 
         function Probe(): ReactNode {
-            seen.push(useResolveSafe<string>(DYNAMIC))
+            seen.push(useResolveOptional<string>(DYNAMIC))
             return null
         }
 

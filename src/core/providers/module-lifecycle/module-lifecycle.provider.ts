@@ -1,7 +1,7 @@
 import type { ModuleHooks, ProviderLifecycle } from "./module-lifecycle.types.js"
-import type { Module } from "../../module/module.js"
+import type { Module, ProviderSnapshot } from "../../module/module.js"
 import type { ModuleRegistry } from "../module-registry/module-registry.provider.js"
-import { Scope } from "../../../container/index.js"
+import { Scope, type InjectionToken } from "../../../container/index.js"
 
 // ModuleLifecycle
 // ========================================
@@ -100,22 +100,44 @@ export class ModuleLifecycle {
     // Collection
     // ========================================
 
+    /** Arm adoption, then build. Listeners must be live before anything constructs, or the eager pass is unseen. */
     #collectInstances(): void {
-        const container = this.module.container
-        const providers = this.module.providers
+        const groups = groupByToken(this.module.providers)
 
-        // Observe every participating provider, lazy or not. Collection happens at construction, so the set
-        // ends up in construction order — a dependency arrives before whatever injected it.
-        for (const p of providers) {
-            if (p.aliasOf || p.scope === Scope.Transient) continue
-            container.onResolution(p.token, (instance) => {
-                if (isLifecycleCandidate(instance)) this.#appendInstance(instance)
-            })
+        this.#observeOwnedInstances(groups)
+        this.#resolveEagerGroups(groups)
+    }
+
+    /** Long-lived: these listeners outlive init and catch late arrivals too. */
+    #observeOwnedInstances(groups: readonly ProviderGroup[]): void {
+        for (const group of groups) {
+            if (!group.bound) continue
+
+            // Singleton SCOPE, not resolution count: a lazy binding and a collection member are singletons
+            // like any other, so `lazy` moves when this fires, never whether it is attached. Deciding per
+            // binding is what keeps "transients never participate in lifecycle" true inside a collection.
+            this.module.container.onPredicateResolution(
+                group.token,
+                (instance) => {
+                    if (isLifecycleCandidate(instance)) this.#appendInstance(instance)
+                },
+                (entry) => entry.scope === Scope.Singleton
+            )
         }
+    }
 
-        for (const p of providers) {
-            if (p.lazy || p.aliasOf || p.scope === Scope.Transient) continue
-            container.resolve(p.token, false)
+    /** Construction order becomes adoption order, so a dependency arrives before whatever injected it. */
+    #resolveEagerGroups(groups: readonly ProviderGroup[]): void {
+        const container = this.module.container
+
+        for (const group of groups) {
+            if (!group.eager) continue
+
+            if (group.multi) {
+                container.resolveAll(group.token, "self")
+            } else {
+                container.resolve(group.token, "self")
+            }
         }
     }
 
@@ -181,7 +203,7 @@ export class ModuleLifecycle {
     #children(): ModuleLifecycle[] {
         const children: ModuleLifecycle[] = []
         for (const child of this.module.children) {
-            const lifecycle = child.container.resolveSafe(ModuleLifecycle, false)
+            const lifecycle = child.container.resolveOptional(ModuleLifecycle, "self")
             if (lifecycle) children.push(lifecycle)
         }
         return children
@@ -246,6 +268,49 @@ export class ModuleLifecycle {
 
 // Helpers
 // ========================================
+
+/** One token's worth of declared providers — a multi token has several, behind one binding list. */
+type ProviderGroup = {
+    token: InjectionToken<unknown>
+    multi: boolean
+    /** Gates observation: a group of nothing but aliases binds nothing here to watch. */
+    bound: boolean
+    /** Gates the eager pass: something here is retained, and nothing deferred the group. */
+    eager: boolean
+}
+
+/** `retains` and `lazy` accumulate across members; `eager` is the verdict once every member has been seen. */
+type GroupDraft = Omit<ProviderGroup, "eager"> & { retains: boolean; lazy: boolean }
+
+/** First-appearance order, which is registration order, which is the order a collection resolves in. */
+function groupByToken(providers: readonly ProviderSnapshot[]): ProviderGroup[] {
+    const drafts = new Map<InjectionToken<unknown>, GroupDraft>()
+
+    for (const p of providers) {
+        const bound = !p.aliasOf
+        // Transients never eager-resolve by intent: rebuilt per read, adopted by nobody.
+        const retains = bound && p.scope !== Scope.Transient
+        const draft = drafts.get(p.token)
+
+        if (draft) {
+            draft.bound ||= bound
+            draft.retains ||= retains
+            draft.lazy ||= p.lazy === true
+            continue
+        }
+
+        drafts.set(p.token, { token: p.token, multi: p.multi === true, bound, retains, lazy: p.lazy === true })
+    }
+
+    // Laziness comes from whichever members declare it, never from the first entry — a value member
+    // declared ahead of a lazy class says nothing, and must not drag the group into the eager pass.
+    return [...drafts.values()].map(({ token, multi, bound, retains, lazy }) => ({
+        token,
+        multi,
+        bound,
+        eager: retains && !lazy,
+    }))
+}
 
 function isLifecycleCandidate(value: unknown): value is ProviderLifecycle {
     if (!value || typeof value !== "object") return false

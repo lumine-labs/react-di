@@ -7,7 +7,7 @@ import { App, Module } from "../../src/core/module/module.js"
 import { AppProvider } from "../../src/react/providers/AppProvider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useModuleContext, useModuleRebuild } from "../../src/react/hooks/useModuleContext.js"
-import { useResolveSafe } from "../../src/react/hooks/useResolve.js"
+import { useResolveOptional } from "../../src/react/hooks/useResolve.js"
 import type { Provider } from "../../src/types.js"
 import { flush, type HookCounts } from "../setup/helpers.js"
 
@@ -99,7 +99,7 @@ function Rebuilder({ capture }: { capture: (rebuild: () => void) => void }): Rea
 }
 
 function SafeProbe({ token, into }: { token: symbol; into: Array<string | undefined> }): ReactNode {
-    const value = useResolveSafe<string>(token)
+    const value = useResolveOptional<string>(token)
     if (into.length === 0 || into.at(-1) !== value) into.push(value)
     return null
 }

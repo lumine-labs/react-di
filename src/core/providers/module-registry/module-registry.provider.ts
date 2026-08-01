@@ -79,10 +79,10 @@ export class ModuleRegistry {
      * which cannot see registrations made after resolution.
      */
     findAncestorByProvider(token: InjectionToken<unknown>): Container | null {
-        return this.ancestors().find((container) => container.isRegistered(token, false)) ?? null
+        return this.ancestors().find((container) => container.isRegistered(token, "self")) ?? null
     }
 
     findDescendantsByProvider(token: InjectionToken<unknown>): Container[] {
-        return this.descendants().filter((container) => container.isRegistered(token, false))
+        return this.descendants().filter((container) => container.isRegistered(token, "self"))
     }
 }

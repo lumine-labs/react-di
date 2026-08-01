@@ -1,6 +1,6 @@
 import { useLazyRef } from "@luminelabs/react-toolkit"
 
-import type { Container, InjectionToken } from "../../container/index.js"
+import type { Container, InjectionToken, ResolveMode } from "../../container/index.js"
 import { useContainer } from "./useModuleContext.js"
 
 // Types
@@ -9,42 +9,42 @@ import { useContainer } from "./useModuleContext.js"
 type ResolveSnapshot<T> = {
     container: Container
     token: InjectionToken<T>
-    recursive: boolean
+    mode: ResolveMode
     value: T
 }
 
 // Hooks
 // ========================================
 
-export function useResolve<T>(token: InjectionToken<T>, recursive = true): T {
+export function useResolve<T>(token: InjectionToken<T>, mode: ResolveMode = "nearest"): T {
     const container = useContainer()
     const ref = useLazyRef<ResolveSnapshot<T>>(() => ({
         container,
         token,
-        recursive,
-        value: container.resolve(token, recursive),
+        mode,
+        value: container.resolve(token, mode),
     }))
 
     const current = ref.current
-    if (current.container !== container || current.token !== token || current.recursive !== recursive) {
-        ref.current = { container, token, recursive, value: container.resolve(token, recursive) }
+    if (current.container !== container || current.token !== token || current.mode !== mode) {
+        ref.current = { container, token, mode, value: container.resolve(token, mode) }
     }
 
     return ref.current.value
 }
 
-export function useResolveSafe<T>(token: InjectionToken<T>, recursive = true): T | undefined {
+export function useResolveOptional<T>(token: InjectionToken<T>, mode: ResolveMode = "nearest"): T | undefined {
     const container = useContainer()
     const ref = useLazyRef<ResolveSnapshot<T | undefined>>(() => ({
         container,
         token,
-        recursive,
-        value: container.resolveSafe(token, recursive),
+        mode,
+        value: container.resolveOptional(token, mode),
     }))
 
     const current = ref.current
-    if (current.container !== container || current.token !== token || current.recursive !== recursive) {
-        ref.current = { container, token, recursive, value: container.resolveSafe(token, recursive) }
+    if (current.container !== container || current.token !== token || current.mode !== mode) {
+        ref.current = { container, token, mode, value: container.resolveOptional(token, mode) }
     }
 
     return ref.current.value

@@ -5,7 +5,7 @@ import { useState } from "react"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { PropsRef, type PropsAdapter } from "../../src/core/providers/props-ref/props-ref.provider.js"
 import { usePropsRef } from "../../src/react/hooks/usePropsRef.js"
-import { useResolve, useResolveSafe } from "../../src/react/hooks/useResolve.js"
+import { useResolve, useResolveOptional } from "../../src/react/hooks/useResolve.js"
 import type { InjectionToken } from "../../src/container/index.js"
 import { Root } from "../setup/react.js"
 
@@ -44,8 +44,8 @@ describe("usePropsRef return shape", () => {
         let local: PropsRef<Data> | null = null
 
         function Probe() {
-            byToken = useResolveSafe(TOKEN)
-            byClass = useResolveSafe(PropsRef)
+            byToken = useResolveOptional(TOKEN)
+            byClass = useResolveOptional(PropsRef)
             return null
         }
 

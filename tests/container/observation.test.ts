@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 
 import { Container, Inject, Injectable, Scope, decorate } from "../../src/container/index.js"
 import type { Constructor } from "../../src/container/index.js"
+import type { Provider } from "../../src/container/index.js"
+import { makeApp, tracked } from "../setup/helpers.js"
 
 // onResolution — the hook the module lifecycle is built on.
 // ========================================
@@ -214,5 +216,104 @@ describe("onResolution", () => {
         parent.resolve(TOKEN)
         expect(parentSeen).toEqual([parentValue])
         expect(childSeen).toEqual([childValue])
+    })
+})
+
+// Multicast — observing never displaces
+// ========================================
+//
+// Inversify's `onActivation` REPLACES a binding's handler rather than chaining it (measured in
+// scratch/probe-multiprovider-7-double-activation.ts). The container wraps that: one real handler per
+// binding, dispatching to a list of listeners. Everything below is that wrapper's contract.
+
+describe("multicast", () => {
+    it("lets user code observe a module-owned token WITHOUT unhooking the module's adoption", async () => {
+        // THE regression test. A module observes its own providers during init to adopt them. Before the
+        // wrapper, any later `onResolution` on one of those tokens replaced the module's listener and the
+        // service silently stopped receiving its lifecycle — a bug with no error and no failing assertion
+        // anywhere near the cause. If this test ever goes away, that trap comes back.
+        const log: string[] = []
+        const Service = tracked(log, "S")
+        const TOKEN = Symbol("module-owned")
+
+        const module = makeApp({ providers: [{ provide: TOKEN, useClass: Service, lazy: true } as Provider] })
+        module.mount()
+
+        // User code, well after the module armed its own observation during init.
+        const seen: unknown[] = []
+        module.container.onResolution(TOKEN, (instance) => seen.push(instance))
+
+        const instance = module.container.resolve(TOKEN)
+
+        // The user's listener fired...
+        expect(seen).toEqual([instance])
+
+        // ...and the module still adopted it — init on arrival (mount has already gone past, per the
+        // late-adoption rule), then the rest of the lifecycle.
+        module.unmount()
+        await module.destroy()
+
+        expect(Service.counts).toEqual({ init: 1, mount: 0, unmount: 1, destroy: 1 })
+        expect(log).toEqual(["S:ctor", "S:init", "S:unmount", "S:destroy"])
+    })
+
+    it("survives the eager path too — observation added after a module already built its instance", async () => {
+        const log: string[] = []
+        const Service = tracked(log, "S")
+        const TOKEN = Symbol("module-owned-eager")
+
+        const module = makeApp({ providers: [{ provide: TOKEN, useClass: Service } as Provider] })
+        module.mount()
+
+        // The instance already exists, so nothing fires for this listener — but attaching it must not
+        // disturb the adoption that already happened either.
+        const seen: unknown[] = []
+        module.container.onResolution(TOKEN, (instance) => seen.push(instance))
+        module.container.resolve(TOKEN)
+
+        expect(seen).toEqual([])
+
+        module.unmount()
+        await module.destroy()
+
+        expect(Service.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 1 })
+    })
+
+    it("notifies observers in attach order", () => {
+        const order: string[] = []
+        const TOKEN = Symbol("ordered")
+
+        const container = new Container()
+        container.register({ provide: TOKEN, useValue: "v" })
+        container.onResolution(TOKEN, () => order.push("first"))
+        container.onResolution(TOKEN, () => order.push("second"))
+        container.onResolution(TOKEN, () => order.push("third"))
+
+        container.resolve(TOKEN)
+
+        expect(order).toEqual(["first", "second", "third"])
+    })
+
+    it("does not drag a listener attached mid-notification into the walk that is already running", () => {
+        const order: string[] = []
+        const TOKEN = Symbol("reentrant")
+
+        class Service {}
+        injectableClass(Service)
+
+        const container = new Container()
+        container.register({ provide: TOKEN, useClass: Service, scope: Scope.Transient })
+        container.onResolution(TOKEN, () => {
+            order.push("first")
+            container.onResolution(TOKEN, () => order.push("late"))
+        })
+
+        container.resolve(TOKEN)
+        expect(order).toEqual(["first"])
+
+        // It joins for the next construction, which for a transient is the very next read.
+        order.length = 0
+        container.resolve(TOKEN)
+        expect(order).toEqual(["first", "late"])
     })
 })
