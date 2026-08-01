@@ -17,10 +17,14 @@ export type InjectionToken<T = unknown> = string | symbol | Constructor<T> | Abs
  *               one instance, one death point.
  *
  * `transient` - a fresh instance per resolve. Never carries lifecycle.
+ *
+ * `request`   - one instance per resolution graph: shared by everything reached from a single
+ *               `resolve`/`resolveAll`, fresh for the next one. Never carries lifecycle.
  */
 export const Scope = Enum({
     Singleton: "singleton",
     Transient: "transient",
+    Request: "request",
 })
 export type Scope = Enum<typeof Scope>
 

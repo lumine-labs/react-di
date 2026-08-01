@@ -576,20 +576,38 @@ const factoryProvider: FactoryProvider<Logger> = {
 // 5. existing provider (alias onto an already-registered token)
 const existingProvider: ExistingProvider<Logger> = { provide: FEATURE_LOGGER, useExisting: LOGGER }
 
-// The scope model is exactly two strings, and `Scope.*` is nothing but those strings. Note where the
+// The scope model is exactly three strings, and `Scope.*` is nothing but those strings. Note where the
 // type comes from: `Scope` is the one type a provider literal needs that `./types` does not re-export,
 // so a types-only consumer has to reach into the root entry for it.
-type _ScopeUnion = Expect<Equals<Scope, "singleton" | "transient">>
+// 2 -> 3 with `request`, one instance per resolution graph. The surface counts below are untouched:
+// `Scope` was already exported under both meanings, and a third member is not a third name.
+type _ScopeUnion = Expect<Equals<Scope, "singleton" | "transient" | "request">>
 type _ScopeValues = Expect<
     Equals<
         typeof Scope,
         {
             readonly Singleton: "singleton"
             readonly Transient: "transient"
+            readonly Request: "request"
         }
     >
 >
 const transientProvider: ClassProvider<ApiClient> = { provide: ApiClient, useClass: ApiClient, scope: Scope.Transient }
+const requestProvider: ClassProvider<ApiClient> = { provide: ApiClient, useClass: ApiClient, scope: Scope.Request }
+const requestLiteralProvider: ClassProvider<ApiClient> = { provide: ApiClient, useClass: ApiClient, scope: "request" }
+const requestShorthandProvider: ClassProvider<ApiClient> = { useClass: ApiClient, scope: "request" }
+const requestFactoryProvider: FactoryProvider<Logger> = {
+    provide: LOGGER,
+    useFactory: () => new ConsoleLogger(""),
+    scope: Scope.Request,
+}
+const requestMultiProvider: Provider = { provide: PLUGIN, useClass: PluginRegistry, multi: true, scope: "request" }
+const requestLazyProvider: Provider = { provide: ApiClient, useClass: ApiClient, scope: Scope.Request, lazy: true }
+void requestLiteralProvider
+void requestShorthandProvider
+void requestFactoryProvider
+void requestMultiProvider
+void requestLazyProvider
 
 // The read modes are declared the same way and reach consumers the same way: an `Enum` whose members ARE
 // the strings, so a member and a bare literal are interchangeable at every call site.
@@ -653,7 +671,7 @@ void resolutionScopedFactory
 const containerScopedClass: ClassProvider<UserStore> = { provide: UserStore, useClass: UserStore, scope: "containerScoped" }
 void containerScopedClass
 
-// @ts-expect-error the scope model is exactly `singleton | transient`.
+// @ts-expect-error the scope model is exactly `singleton | transient | request`.
 const removedScope: Scope = "containerScoped"
 void removedScope
 
@@ -1564,6 +1582,7 @@ export const consumerSurface = {
     moduleParams,
     providerProps,
     transientProvider,
+    requestProvider,
     valueSurfaceSize: publicValueSurface.length,
     DUPLICATE_PLUGIN,
 } as const

@@ -427,9 +427,26 @@ describe("scopes", () => {
         expect(built).toHaveLength(1)
     })
 
-    it("exposes exactly two scopes", () => {
-        expect(Object.keys(Scope).sort()).toEqual(["Singleton", "Transient"])
-        expect([Scope.Singleton, Scope.Transient]).toEqual(["singleton", "transient"])
+    it("exposes exactly three scopes", () => {
+        expect(Object.keys(Scope).sort()).toEqual(["Request", "Singleton", "Transient"])
+        expect([Scope.Singleton, Scope.Transient, Scope.Request]).toEqual(["singleton", "transient", "request"])
+    })
+
+    it("accepts both the member and the string literal for every scope", () => {
+        class Member {}
+        class Literal {}
+        injectableClass(Member)
+        injectableClass(Literal)
+
+        const container = new Container()
+        container.register([
+            { provide: Symbol("m-singleton"), useClass: Member, scope: Scope.Singleton },
+            { provide: Symbol("m-transient"), useClass: Member, scope: Scope.Transient },
+            { provide: Symbol("m-request"), useClass: Member, scope: Scope.Request },
+            { provide: Symbol("l-singleton"), useClass: Literal, scope: "singleton" },
+            { provide: Symbol("l-transient"), useClass: Literal, scope: "transient" },
+            { provide: Symbol("l-request"), useClass: Literal, scope: "request" },
+        ])
     })
 
     // Our `Injectable` is parameterless, so no consumer can write `@Injectable("Transient")` — but the raw

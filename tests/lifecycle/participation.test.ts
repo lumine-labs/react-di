@@ -45,6 +45,34 @@ describe("participation", () => {
         expect(log).toEqual([])
     })
 
+    it("does not build a request-scoped provider eagerly at init, in any form", () => {
+        const log: string[] = []
+        const service = tracked(log, "R")
+        const member = tracked(log, "M")
+        const shorthand = tracked(log, "S")
+        const TOKEN = Symbol("request-eager")
+        const FACTORY = Symbol("request-factory")
+        const PLUGINS = Symbol("request-plugins")
+
+        makeApp({
+            providers: [
+                { provide: TOKEN, useClass: service, scope: Scope.Request } as Provider,
+                {
+                    provide: FACTORY,
+                    useFactory: () => {
+                        log.push("F:ctor")
+                        return {}
+                    },
+                    scope: Scope.Request,
+                } as Provider,
+                { provide: PLUGINS, useClass: member, multi: true, scope: Scope.Request } as Provider,
+                { useClass: shorthand, scope: Scope.Request } as Provider,
+            ],
+        })
+
+        expect(log).toEqual([])
+    })
+
     it("does not double-count a target that also has an alias", async () => {
         const log: string[] = []
         const service = tracked(log, "A")

@@ -288,8 +288,7 @@ function groupByToken(providers: readonly ProviderSnapshot[]): ProviderGroup[] {
 
     for (const p of providers) {
         const bound = !p.aliasOf
-        // Transients never eager-resolve by intent: rebuilt per read, adopted by nobody.
-        const retains = bound && p.scope !== Scope.Transient
+        const retains = bound && (p.scope ?? Scope.Singleton) === Scope.Singleton
         const draft = drafts.get(p.token)
 
         if (draft) {

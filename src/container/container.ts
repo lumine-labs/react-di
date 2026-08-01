@@ -40,7 +40,11 @@ type ActivatableBinding = { onActivation(handler: (context: any, instance: any) 
 type BindingListener = (instance: unknown) => void
 type ObservableBinding = { binding: ActivatableBinding; scope: Scope; listeners?: BindingListener[] }
 type ObservedBinding = { scope: Scope }
-type ScopedBinding = { inSingletonScope(): ActivatableBinding; inTransientScope(): ActivatableBinding }
+type ScopedBinding = {
+    inSingletonScope(): ActivatableBinding
+    inTransientScope(): ActivatableBinding
+    inRequestScope(): ActivatableBinding
+}
 
 // Container
 // ========================================
@@ -220,7 +224,14 @@ export class Container {
     }
 
     #scoped(binding: ScopedBinding, scope: Scope): ActivatableBinding {
-        return scope === Scope.Transient ? binding.inTransientScope() : binding.inSingletonScope()
+        switch (scope) {
+            case Scope.Transient:
+                return binding.inTransientScope()
+            case Scope.Request:
+                return binding.inRequestScope()
+            default:
+                return binding.inSingletonScope()
+        }
     }
 
     // Observation

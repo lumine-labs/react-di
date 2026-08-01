@@ -9,8 +9,9 @@ import type { Module } from "../../src/core/module/module.js"
 // THE PARTICIPATION MATRIX — which providers take part in the module lifecycle.
 // ========================================
 //
-// THE RULE: every provider form participates EXCEPT `useExisting` and transients. Whether a provider is
-// lazy or eager, single or multi, changes only WHEN its instance is adopted — never WHETHER.
+// THE RULE: every provider form participates EXCEPT `useExisting`, transients and request-scoped
+// providers. Whether a provider is lazy or eager, single or multi, changes only WHEN its instance is
+// adopted — never WHETHER.
 //
 // This file is the canonical statement of that rule: one cell per shape, every cell asserting all four
 // phase counts, deliberately redundant with the focused tests in participation.test.ts, lazy.test.ts and
@@ -595,5 +596,157 @@ describe("never adopted — transients", () => {
 
         // Constructions only — never a hook.
         expect(log.every((entry) => entry.endsWith(":ctor"))).toBe(true)
+    })
+})
+
+describe("never adopted — request scope", () => {
+    it("21. request-scoped class, single", async () => {
+        const log: string[] = []
+        const Service = instrumented("R", log)
+
+        const module = makeApp({
+            providers: [{ provide: TOKEN, useClass: Service, scope: Scope.Request } as Provider],
+        })
+
+        expect(Service.instances).toHaveLength(0)
+
+        module.mount()
+        module.container.resolve(TOKEN)
+        module.container.resolve(TOKEN)
+        module.unmount()
+        await module.destroy()
+
+        // One read is one graph, so two reads are two instances — and neither was adopted.
+        expect(Service.instances).toHaveLength(2)
+        for (const instance of Service.instances) expect(instance.marks).toEqual(NONE)
+    })
+
+    it("22. request-scoped + lazy — `lazy` changes nothing that was not already deferred", async () => {
+        const log: string[] = []
+        const Service = instrumented("R", log)
+
+        const module = makeApp({
+            providers: [{ provide: TOKEN, useClass: Service, scope: Scope.Request, lazy: true } as Provider],
+        })
+        module.mount()
+        expect(Service.instances).toHaveLength(0)
+
+        module.container.resolve(TOKEN)
+        module.unmount()
+        await module.destroy()
+
+        expect(Service.instances).toHaveLength(1)
+        expect(Service.instances[0]?.marks).toEqual(NONE)
+        expect(log).toEqual(["R#1:ctor"])
+    })
+
+    it("23. request-scoped member beside a singleton member", async () => {
+        const log: string[] = []
+        const Singleton = instrumented("S", log)
+        const Requested = instrumented("R", log)
+
+        const module = makeApp({
+            providers: [
+                { provide: TOKEN, useClass: Singleton, multi: true } as Provider,
+                { provide: TOKEN, useClass: Requested, multi: true, scope: Scope.Request } as Provider,
+            ],
+        })
+        module.mount()
+
+        const first = module.container.resolveAll(TOKEN)
+        const second = module.container.resolveAll(TOKEN)
+
+        expect(first[0]).toBe(second[0])
+        expect(first[1]).not.toBe(second[1])
+
+        module.unmount()
+        await module.destroy()
+
+        expect(Singleton.instances[0]?.marks).toEqual(EAGER)
+
+        // Three: one from the eager pass the singleton neighbour pulled, two from the reads.
+        expect(Requested.instances).toHaveLength(3)
+        for (const instance of Requested.instances) expect(instance.marks).toEqual(NONE)
+    })
+
+    it("24. request-scoped factory, single and inside a collection", async () => {
+        const log: string[] = []
+        const solo = factoryOf("F", log)
+        const member = factoryOf("G", log)
+        const Singleton = instrumented("S", log)
+
+        const module = makeApp({
+            providers: [
+                { provide: OTHER, useFactory: solo.make, scope: Scope.Request } as Provider,
+                { provide: TOKEN, useClass: Singleton, multi: true } as Provider,
+                { provide: TOKEN, useFactory: member.make, multi: true, scope: Scope.Request } as Provider,
+            ],
+        })
+        module.mount()
+
+        module.container.resolve(OTHER)
+        module.container.resolve(OTHER)
+        module.container.resolveAll(TOKEN)
+
+        module.unmount()
+        await module.destroy()
+
+        expect(solo.built).toHaveLength(2)
+        for (const built of solo.built) expect(built.marks).toEqual(NONE)
+        for (const built of member.built) expect(built.marks).toEqual(NONE)
+        expect(Singleton.instances[0]?.marks).toEqual(EAGER)
+    })
+
+    it("25. all-request collection — nothing observed, nothing built eagerly", async () => {
+        const log: string[] = []
+        const First = instrumented("A", log)
+        const Second = instrumented("B", log)
+
+        const module = makeApp({
+            providers: [
+                { provide: TOKEN, useClass: First, multi: true, scope: Scope.Request } as Provider,
+                { provide: TOKEN, useClass: Second, multi: true, scope: Scope.Request } as Provider,
+            ],
+        })
+
+        expect(log).toEqual([])
+
+        module.mount()
+        module.container.resolveAll(TOKEN)
+        module.container.resolveAll(TOKEN)
+        module.unmount()
+        await module.destroy()
+
+        expect(First.instances).toHaveLength(2)
+        expect(Second.instances).toHaveLength(2)
+        for (const instance of [...First.instances, ...Second.instances]) expect(instance.marks).toEqual(NONE)
+
+        expect(log.every((entry) => entry.endsWith(":ctor"))).toBe(true)
+    })
+
+    it("26. a request-scoped dependency of an adopted singleton is not itself adopted", async () => {
+        const log: string[] = []
+        const Requested = instrumented("R", log)
+
+        const Owner = class {
+            constructor(readonly dep: unknown) {}
+            onModuleInit(): void {
+                log.push("O#1:init")
+            }
+        }
+        decorate(Injectable(), Owner)
+        decorate(Inject(OTHER) as ParameterDecorator, Owner, 0)
+
+        const module = makeApp({
+            providers: [
+                { provide: OTHER, useClass: Requested, scope: Scope.Request } as Provider,
+                { provide: TOKEN, useClass: Owner } as Provider,
+            ],
+        })
+        await drive(module)
+
+        expect(Requested.instances).toHaveLength(1)
+        expect(Requested.instances[0]?.marks).toEqual(NONE)
+        expect(log.filter((entry) => entry.endsWith(":init"))).toEqual(["O#1:init"])
     })
 })
