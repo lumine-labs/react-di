@@ -1,6 +1,6 @@
 import type { InjectionToken } from "../../container/index.js"
 
-const DEFAULT_TOKEN_NAMESPACE = "@luminelabs/react-di"
+const DEFAULT_TOKEN_NAMESPACE = "@remodulo/react"
 
 export type TokenOptions = {
     allowDuplicate?: boolean

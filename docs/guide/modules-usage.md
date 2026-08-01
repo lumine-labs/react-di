@@ -61,7 +61,7 @@ Rebuild creates a fresh owned resolution and re-runs module/provider lifecycle.
 ## `createModule` boundary factory
 
 ```tsx
-import { createModule } from "@luminelabs/react-di"
+import { createModule } from "@remodulo/react"
 
 const FeatureModule = createModule({ root: true, providers: [MyService] })
 

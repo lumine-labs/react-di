@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url"
 
 const consumersDir = dirname(fileURLToPath(import.meta.url))
 const packageRoot = resolve(consumersDir, "..", "..")
-const packageName = "@luminelabs/react-di"
+const packageName = "@remodulo/react"
 
 const consumers = ["react18", "react19"]
 

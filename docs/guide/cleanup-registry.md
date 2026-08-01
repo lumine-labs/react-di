@@ -33,7 +33,7 @@
 Use `useAsyncTeardown(cleanup, priority?)` inside module subtree:
 
 ```tsx
-import { useAsyncTeardown } from "@luminelabs/react-di"
+import { useAsyncTeardown } from "@remodulo/react"
 
 const off = useAsyncTeardown(() => {
     socket.disconnect()

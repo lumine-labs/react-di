@@ -1,12 +1,12 @@
 # API Overview
 
-This page documents the current public surface from `@luminelabs/react-di`.
+This page documents the current public surface from `@remodulo/react`.
 
 ## Entry Points
 
-- `@luminelabs/react-di`
-- `@luminelabs/react-di/types`
-- `@luminelabs/react-di/core`
+- `@remodulo/react`
+- `@remodulo/react/types`
+- `@remodulo/react/core`
 
 ## Main Runtime Exports
 

@@ -1,8 +1,8 @@
 import { defineConfig } from "vitepress"
 
 export default defineConfig({
-    base: "/react-di/",
-    title: "@luminelabs/react-di",
+    base: "/remodulo/",
+    title: "@remodulo/react",
     description: "Non-reactive dependency injection library for React built on top of tsyringe with immutable module scopes.",
     themeConfig: {
         nav: [
@@ -45,6 +45,6 @@ export default defineConfig({
                 items: [{ text: "Overview", link: "/api/" }],
             },
         ],
-        socialLinks: [{ icon: "github", link: "https://github.com/lumine-labs/react-di" }],
+        socialLinks: [{ icon: "github", link: "https://github.com/lumine-labs/remodulo" }],
     },
 })

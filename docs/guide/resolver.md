@@ -15,7 +15,7 @@ Use constructor injection by default. Use resolver only when token is chosen dyn
 ## Example
 
 ```ts
-import { Resolver } from "@luminelabs/react-di"
+import { Resolver } from "@remodulo/react"
 
 class DynamicHandler {
     constructor(private readonly resolver: Resolver) {}
@@ -40,7 +40,7 @@ container. For the rare introspection/infrastructure case (plugins, DevTools) th
 container, inject `ModuleMetadata` — the single public door:
 
 ```ts
-import { ModuleMetadata } from "@luminelabs/react-di"
+import { ModuleMetadata } from "@remodulo/react"
 
 class Introspector {
     constructor(private readonly meta: ModuleMetadata) {}

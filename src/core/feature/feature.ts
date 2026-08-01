@@ -3,7 +3,7 @@ import type { Provider } from "../../container/index.js"
 // Feature
 // ========================================
 
-const FEATURE = Symbol("@luminelabs/remodulo:feature")
+const FEATURE = Symbol("@remodulo/react:feature")
 
 export type Feature = {
     readonly [FEATURE]: true

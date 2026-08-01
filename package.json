@@ -1,12 +1,12 @@
 {
-    "name": "@luminelabs/react-di",
-    "version": "0.6.0",
+    "name": "@remodulo/react",
+    "version": "0.7.0",
     "description": "Non-reactive dependency injection library for React built on top of inversify with immutable module scopes.",
     "license": "MIT",
     "author": "Egor Arkhipov (Lumine Labs)",
     "repository": {
         "type": "git",
-        "url": "https://github.com/lumine-labs/react-di"
+        "url": "https://github.com/lumine-labs/remodulo"
     },
     "publishConfig": {
         "access": "public"

@@ -1,6 +1,6 @@
 # What is a Module
 
-In `@luminelabs/react-di`, a module is a scoped dependency container with explicit ownership and lifecycle behavior.
+In `@remodulo/react`, a module is a scoped dependency container with explicit ownership and lifecycle behavior.
 
 ## Core Idea
 

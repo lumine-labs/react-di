@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-    name: "@luminelabs/react-di"
+    name: "@remodulo/react"
     text: "Module-oriented DI for React"
     tagline: "Built on tsyringe with nested module scopes, provider lifecycle, and explicit dependency graphs."
     actions:
@@ -14,7 +14,7 @@ hero:
           link: /api/
         - theme: alt
           text: GitHub
-          link: https://github.com/lumine-labs/react-di
+          link: https://github.com/lumine-labs/remodulo
 
 features:
     - title: Scoped Module Tree

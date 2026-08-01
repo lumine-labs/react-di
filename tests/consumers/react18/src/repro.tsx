@@ -1,7 +1,7 @@
 /**
  * Type-regression consumer.
  *
- * This file is compiled against the PUBLISHED declarations — `node_modules/@luminelabs/react-di/dist`,
+ * This file is compiled against the PUBLISHED declarations — `node_modules/@remodulo/react/dist`,
  * installed from the packed package, never from `src` and never through a path alias. `npm run
  * typecheck` in the repo root only proves `src/` is self-consistent under our own tsconfig; this proves
  * the emitted `.d.ts` still means something in somebody else's project.
@@ -27,6 +27,7 @@ import "reflect-metadata"
 import { useState } from "react"
 import type { ComponentType, ReactElement, ReactNode } from "react"
 
+// The package was `@luminelabs/react-di` until the 2026-08-01 rename to `@remodulo/react`; specifier only.
 import {
     App,
     AppProvider,
@@ -59,7 +60,7 @@ import {
     useResolve,
     useResolveAll,
     useResolveOptional,
-} from "@luminelabs/react-di"
+} from "@remodulo/react"
 
 // The `./types` subpath has to carry the whole type surface on its own — a consumer that only wants
 // types must never have to reach into `.` or into `dist/`.
@@ -93,7 +94,7 @@ import type {
     UsePropsRefOptions,
     UsePropsRefResult,
     ValueProvider,
-} from "@luminelabs/react-di/types"
+} from "@remodulo/react/types"
 
 // Assertion helpers — zero dependency on purpose.
 // ========================================
@@ -1029,7 +1030,7 @@ type _ModuleContextValueShape = Expect<Equals<ModuleContextValue, { module: Modu
 // is nameable through the published surface. Un-exporting any of those types fails right here, e.g.
 //
 //   src/repro.tsx: error TS2742: The inferred type of 'useUserBridge' cannot be named without a
-//   reference to '../node_modules/@luminelabs/react-di/dist/react/hooks/usePropsRef.js'.
+//   reference to '../node_modules/@remodulo/react/dist/react/hooks/usePropsRef.js'.
 //
 // (`@ts-expect-error` cannot pin these: it does suppress TS2742, but the "unused directive" check
 // ignores declaration diagnostics and then flags the directive as unused.)
@@ -1563,12 +1564,12 @@ type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 32>>
 
 // The three modes are the only names in that list a consumer imports from the ROOT as values, so the claim
 // that `./types` also carries them cannot ride on the import block above. Pinned directly instead.
-type _ResolveModeOnTypesSubpath = Expect<Equals<import("@luminelabs/react-di/types").ResolveMode, ResolveMode>>
+type _ResolveModeOnTypesSubpath = Expect<Equals<import("@remodulo/react/types").ResolveMode, ResolveMode>>
 type _ResolveAllModeOnTypesSubpath = Expect<
-    Equals<import("@luminelabs/react-di/types").ResolveAllMode, ResolveAllMode>
+    Equals<import("@remodulo/react/types").ResolveAllMode, ResolveAllMode>
 >
 type _RegistrationModeOnTypesSubpath = Expect<
-    Equals<import("@luminelabs/react-di/types").RegistrationMode, RegistrationMode>
+    Equals<import("@remodulo/react/types").RegistrationMode, RegistrationMode>
 >
 
 // Keep the module-scope constants that exist only to be typechecked from being flagged as dead by a

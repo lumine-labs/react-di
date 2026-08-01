@@ -1,6 +1,6 @@
 # Reasoning
 
-`@luminelabs/react-di` exists to solve dependency graph composition in React applications where plain Context wiring becomes hard to scale.
+`@remodulo/react` exists to solve dependency graph composition in React applications where plain Context wiring becomes hard to scale.
 
 ## Why not only Context
 
