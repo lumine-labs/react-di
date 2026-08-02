@@ -1,6 +1,6 @@
 {
     "name": "@remodulo/react",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "description": "Non-reactive dependency injection library for React built on top of inversify with immutable module scopes.",
     "license": "MIT",
     "author": "Egor Arkhipov (Lumine Labs)",
