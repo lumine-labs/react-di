@@ -1,23 +1,78 @@
 {
     "name": "@remodulo/mobx",
-    "version": "0.0.0",
-    "private": true,
-    "description": "MobX bindings for remodulo. Placeholder — not yet implemented or published.",
+    "version": "0.1.0",
+    "description": "MobX companion for @remodulo/react: a PropsAdapter that bridges React props into a stable MobX observable.",
     "license": "MIT",
     "author": "Egor Arkhipov (Lumine Labs)",
     "repository": {
         "type": "git",
         "url": "https://github.com/lumine-labs/remodulo"
     },
+    "publishConfig": {
+        "access": "public"
+    },
+    "keywords": [
+        "react",
+        "dependency-injection",
+        "di",
+        "mobx",
+        "remodulo",
+        "props-adapter",
+        "typescript",
+        "frontend-architecture"
+    ],
     "type": "module",
     "sideEffects": false,
     "engines": {
         "node": ">=18"
     },
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "default": "./dist/index.js"
+        },
+        "./types": {
+            "types": "./dist/types.d.ts",
+            "import": "./dist/types.js",
+            "default": "./dist/types.js"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ],
     "scripts": {
-        "typecheck": "tsc -p tsconfig.json --noEmit"
+        "clean": "rimraf dist",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "typecheck:build": "tsc -p tsconfig.build.json --noEmit",
+        "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
+        "build": "pnpm run clean && tsc -p tsconfig.build.json",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage",
+        "prepack": "pnpm run build"
+    },
+    "peerDependencies": {
+        "@remodulo/react": "workspace:*",
+        "mobx": "^6.0.0",
+        "react": "^18.0.0 || ^19.0.0"
     },
     "devDependencies": {
-        "typescript": "^5.9.3"
+        "@remodulo/react": "workspace:*",
+        "@testing-library/jest-dom": "^6.9.1",
+        "@testing-library/react": "^16.3.2",
+        "@types/node": "^25.5.0",
+        "@types/react": "^19.2.14",
+        "@vitest/coverage-v8": "^4.1.0",
+        "jsdom": "^29.0.0",
+        "mobx": "^6.13.7",
+        "react": "^18.0.0 || ^19.0.0",
+        "react-dom": "^19.2.4",
+        "reflect-metadata": "^0.2.2",
+        "rimraf": "^6.1.3",
+        "typescript": "^5.9.3",
+        "vitest": "^4.1.0"
     }
 }

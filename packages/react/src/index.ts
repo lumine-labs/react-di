@@ -35,9 +35,6 @@ export { PropsRef } from "./core/providers/props-ref/props-ref.provider.js"
 
 // Refs
 // ========================================
-//
-// Not system providers: nothing registers these for you. They are base classes an app subclasses to mint a
-// token (`class InputRef extends Ref<HTMLInputElement> {}`) and registers like any other class.
 
 export { Ref, RefMap } from "./core/providers/ref/ref.provider.js"
 
