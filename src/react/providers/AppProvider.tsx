@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type JSX, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type JSX, type ReactNode } from "react"
 
 import type { App } from "../../core/module/module.js"
 import { ModuleContext } from "../context/ModuleContext.js"
@@ -7,27 +7,35 @@ import { ModuleContext } from "../context/ModuleContext.js"
 // ========================================
 
 export type AppProviderProps = {
-    app: App
+    app: App | (() => App)
     children?: ReactNode
 }
 
-/**
- * Drives an owner-created App: ensures it is initialized before children render (a scoped child throws if
- * its parent is not initialized), mounts on effect, unmounts on cleanup. It NEVER destroys — whoever called
- * `new App(...)` owns `app.destroy()`. Rebuild is a no-op here; the App instance is owned outside the tree.
- */
+/** React root for an App: captures it once and owns its init, mount, unmount and destroy. */
 export function AppProvider({ app, children }: AppProviderProps): JSX.Element {
-    if (!app.initialized) app.init()
+    const [ownedApp] = useState(() => {
+        const instance = typeof app === "function" ? app() : app
+        if (!instance.initialized) instance.init()
+        return instance
+    })
+
+    if (typeof app !== "function" && app !== ownedApp) {
+        throw new Error("AppProvider does not support replacing its App instance")
+    }
 
     useEffect(() => {
-        app.mount()
+        ownedApp.mount()
 
         return () => {
-            app.unmount()
+            try {
+                ownedApp.unmount()
+            } finally {
+                void ownedApp.destroy()
+            }
         }
-    }, [app])
+    }, [ownedApp])
 
-    const value = useMemo(() => ({ module: app, rebuild: noop }), [app])
+    const value = useMemo(() => ({ module: ownedApp, rebuild: noop }), [ownedApp])
 
     return <ModuleContext.Provider value={value}>{children}</ModuleContext.Provider>
 }

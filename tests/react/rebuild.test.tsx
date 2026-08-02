@@ -13,7 +13,7 @@ import { flush, tracked } from "../setup/helpers.js"
 // Rebuild
 // ========================================
 //
-// Rebuild is a ModuleProvider concern — the App is owned outside the tree and never rebuilds, so every
+// Rebuild is a ModuleProvider concern — the App never rebuilds, so every
 // subject here is a scoped `<ModuleProvider>` under a stable `<Root>`. A rebuild resolves a fresh module
 // *first* and tears the outgoing one down afterwards: new:init → old:unmount → old:destroy → new:mount,
 // with both containers briefly alive at once.

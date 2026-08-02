@@ -105,7 +105,6 @@ async function cycle(tracker: LeakTracker): Promise<void> {
 
     hold.rebuild = null
 
-    // AppProvider never destroys: the owner of `new App()` does.
     await app.destroy()
 }
 

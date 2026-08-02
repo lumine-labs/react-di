@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { useState, type JSX, type ReactNode } from "react"
 
 import { Inject, Injectable, decorate } from "../../src/container/index.js"
-import { Ref, RefMap } from "../../src/core/ref/ref.js"
+import { Ref, RefMap } from "../../src/core/providers/ref/ref.provider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useResolve } from "../../src/react/hooks/useResolve.js"
 import type { Constructor, Provider } from "../../src/types.js"

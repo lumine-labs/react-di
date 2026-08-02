@@ -175,10 +175,11 @@ describe("the plugin pattern", () => {
         unmount()
         await flush()
 
-        // The App is owned outside the tree, so `<Root>` never destroys it — R survives the unmount.
+        // Every level goes all the way down, the App's own contribution included — `<Root>` destroys its
+        // App on unmount, so R is buried alongside M and L.
         expect(leaf.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 1 })
         expect(mid.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 1 })
-        expect(root.counts.destroy).toBe(0)
+        expect(root.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 1 })
     })
 
     it("drops only the leaf's contribution when the leaf module goes away", async () => {

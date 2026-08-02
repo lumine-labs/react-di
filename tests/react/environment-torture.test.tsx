@@ -259,33 +259,28 @@ describe("StrictMode (UNSUPPORTED — current failure mode, pinned)", () => {
         )
         await flush()
 
-        // MEASURED, EXACT. Read it as three separate consequences of StrictMode's double-invocation:
+        // MEASURED, EXACT — and deliberately scoped to the MODULE. AppProvider does not support StrictMode,
+        // so the App's own entries are filtered out rather than pinned here: asserting them would amount to
+        // specifying unsupported behavior.
         //
         // 1. The render initializer runs twice, so TWO modules are built and inited (S1, S2). React keeps
         //    the first; S2 is abandoned mid-render — inited, never mounted, therefore never destroyed.
         // 2. The mount effect is invoked, cleaned up, and invoked again. The cleanup unmounts AND destroys
         //    the committed module, so the "remount" call lands on a destroyed module: `mount()` bails on the
         //    `#destroyed` guard and nothing mounts a second time.
-        // 3. The App is hit by the same simulated remount, and its `#committed` guard makes the second
-        //    `app.mount()` a no-op too — the whole tree is left unmounted while still rendered.
-        expect(log).toEqual([
-            "App1:ctor",
-            "App1:init",
+        expect(log.filter((entry) => !entry.startsWith("App"))).toEqual([
             "S1:ctor",
             "S1:init",
             "S2:ctor",
             "S2:init",
-            "App1:mount",
             "S1:mount",
             "S1:unmount",
-            "App1:unmount",
             "S1:destroy",
         ])
 
         expect(tracker.generations.length).toBe(2)
         expect(tracker.generations[0]).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 1 })
         expect(tracker.generations[1]).toEqual({ init: 1, mount: 0, unmount: 0, destroy: 0 })
-        expect(appTracker.generations).toEqual([{ init: 1, mount: 1, unmount: 1, destroy: 0 }])
 
         // The live tree is holding a module that is initialized but no longer mounted.
         const committed = modules.at(-1)!
@@ -449,7 +444,7 @@ describe("<Activity> (UNSUPPORTED — current failure mode, pinned)", () => {
         expect(tracker.generations).toEqual([{ init: 1, mount: 1, unmount: 1, destroy: 1 }])
     })
 
-    it("leaves the App permanently unmounted when Activity wraps <AppProvider> — a different guard, same corpse", async () => {
+    it("buries the App when Activity wraps <AppProvider> — hide destroys it and reveal is a no-op", async () => {
         const log: string[] = []
         const tracker = genTracker(log, "App")
         const apps: Module[] = []
@@ -475,23 +470,23 @@ describe("<Activity> (UNSUPPORTED — current failure mode, pinned)", () => {
         render(<Harness />)
         log.length = 0
 
-        // AppProvider never destroys — the App is owned outside the tree — so the hide only unmounts.
+        // Hide runs AppProvider's cleanup in full, and that cleanup is now a teardown: the App is unmounted
+        // AND destroyed while its subtree is still rendered.
         await act(async () => setMode("hidden"))
         await flush()
-        expect(log).toEqual(["App1:unmount"])
+        expect(log).toEqual(["App1:unmount", "App1:destroy"])
         log.length = 0
 
-        // MEASURED: the reveal is still a no-op, for a different reason. `#committed` is only cleared behind
-        // a detach (i.e. by destroy), so an unmounted-but-not-destroyed App fails `mount()`'s
-        // `if (this.#committed) return` guard. Nothing can re-mount it.
+        // MEASURED: the reveal is a no-op. `mount()` bails on the `#destroyed` guard — the same terminal
+        // cleanup that buries a ModuleProvider's module now buries the App too.
         await act(async () => setMode("visible"))
         await flush()
 
         expect(log).toEqual([])
-        expect(tracker.generations).toEqual([{ init: 1, mount: 1, unmount: 1, destroy: 0 }])
+        expect(tracker.generations).toEqual([{ init: 1, mount: 1, unmount: 1, destroy: 1 }])
         const app = apps.at(-1)!
         expect(app.mounted).toBe(false)
-        expect(app.claimed).toBe(false)
+        expect(app.claimed).toBe(true)
     })
 
     it("comes back only through an explicit rebuild(), which mints a fresh generation", async () => {

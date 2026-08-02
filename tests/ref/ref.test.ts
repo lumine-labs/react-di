@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { Container } from "../../src/container/index.js"
-import { Ref, RefMap } from "../../src/core/ref/ref.js"
+import { Ref, RefMap } from "../../src/core/providers/ref/ref.provider.js"
 
 // Element holders
 // ========================================

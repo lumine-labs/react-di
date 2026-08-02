@@ -1331,8 +1331,17 @@ void rootPropElement
 const factoryPropElement = <ModuleProvider factory={() => new Container()} providers={[ApiClient]} />
 void factoryPropElement
 
-// AppProvider's props are exactly `{ app, children? }`.
-type _AppProviderPropsShape = Expect<Equals<AppProviderProps, { app: App; children?: ReactNode }>>
+// AppProvider's props are exactly `{ app, children? }`, and `app` takes either an instance or a factory
+// that builds one. The factory overload exists so the App can be constructed inside the provider's own
+// hook state instead of at module scope.
+type _AppProviderPropsShape = Expect<Equals<AppProviderProps, { app: App | (() => App); children?: ReactNode }>>
+
+// Both accepted forms.
+const instanceAppProvider = <AppProvider app={composedApp} />
+void instanceAppProvider
+
+const factoryAppProvider = <AppProvider app={() => new App({ providers: [ApiClient] })} />
+void factoryAppProvider
 
 // @ts-expect-error AppProvider's `app` must be an App — an arbitrary object is not one.
 const badAppProvider = <AppProvider app={{}} />
@@ -1341,6 +1350,10 @@ void badAppProvider
 // @ts-expect-error a bare Module is not an App — AppProvider only accepts the nominal composition root.
 const bareModuleAppProvider = <AppProvider app={someBareModule} />
 void bareModuleAppProvider
+
+// @ts-expect-error a factory has to RETURN an App — one that returns a bare Module is not the overload.
+const badFactoryAppProvider = <AppProvider app={() => someBareModule} />
+void badFactoryAppProvider
 
 // @ts-expect-error AppProvider requires an `app`.
 const emptyAppProvider = <AppProvider />

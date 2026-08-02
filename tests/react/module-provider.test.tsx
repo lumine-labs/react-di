@@ -14,9 +14,9 @@ import { flush, tracked } from "../setup/helpers.js"
 // AppProvider + ModuleProvider
 // ========================================
 //
-// The React root is `<AppProvider app={new App(...)}>`: it inits the app before children render, mounts it
-// on effect and unmounts it on cleanup — but never destroys, because the app is owned outside the tree.
-// Every `<ModuleProvider>` is scoped: it forks the module in context and requires one to be there.
+// The React root is `<AppProvider app={new App(...)}>`: it captures the app, inits it before children
+// render, mounts it on effect, and on cleanup unmounts and then destroys it — the provider owns the whole
+// arc. Every `<ModuleProvider>` is scoped: it forks the module in context and requires one to be there.
 
 const SHARED = Symbol.for("tests.provider.shared")
 const ROOT_ONLY = Symbol.for("tests.provider.root-only")
@@ -66,7 +66,7 @@ describe("AppProvider", () => {
         expect(Service.counts).toMatchObject({ unmount: 1 })
     })
 
-    it("never destroys — the owner keeps that responsibility", async () => {
+    it("destroys the app on unmount — root providers get onModuleUnmount AND onModuleDestroy", async () => {
         const log: string[] = []
         const Service = tracked(log, "A")
         const app = new App({ providers: [Service] })
@@ -75,9 +75,32 @@ describe("AppProvider", () => {
         unmount()
         await flush()
 
-        // Unmounted, but not destroyed: destroy hook never fired and the app is still initialized.
-        expect(Service.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 0 })
-        expect(app.initialized).toBe(true)
+        // The full arc, unmount strictly before destroy. Nothing outside the tree has to call
+        // `app.destroy()` for a root provider to see its destroy hook.
+        expect(Service.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 1 })
+        expect(log).toEqual(["A:ctor", "A:init", "A:mount", "A:unmount", "A:destroy"])
+        expect(app.claimed).toBe(true)
+        expect(app.mounted).toBe(false)
+    })
+
+    it("is safe to call app.destroy() again after the unmount-driven destroy", async () => {
+        const log: string[] = []
+        const Service = tracked(log, "A")
+        const app = new App({ providers: [Service] })
+
+        const { unmount } = render(<AppProvider app={app}><div /></AppProvider>)
+        unmount()
+        await flush()
+        log.length = 0
+
+        // MEASURED: `destroy()` short-circuits on the `#destroyed` flag the first pass set synchronously, so
+        // the second call resolves without re-running a single hook. An owner who still calls `destroy()`
+        // out of habit is not punished for it.
+        await expect(app.destroy()).resolves.toBeUndefined()
+        await flush()
+
+        expect(log).toEqual([])
+        expect(Service.counts).toEqual({ init: 1, mount: 1, unmount: 1, destroy: 1 })
     })
 
     it("does not re-init an app the owner already initialized", () => {
@@ -135,7 +158,6 @@ describe("parallel apps", () => {
         expect(first.container.isRegistered(SHARED, "self")).toBe(true)
         expect(second.container.resolve(SHARED)).toBe("second")
 
-        // Independent lifecycles: unmounting the whole tree unmounts both, neither destroys.
         unmount()
         await flush()
 
@@ -144,12 +166,14 @@ describe("parallel apps", () => {
             "First:init",
             "First:mount",
             "First:unmount",
+            "First:destroy",
         ])
         expect(log.filter((e) => e.startsWith("Second"))).toEqual([
             "Second:ctor",
             "Second:init",
             "Second:mount",
             "Second:unmount",
+            "Second:destroy",
         ])
     })
 })

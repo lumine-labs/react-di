@@ -1,28 +1,25 @@
 import { act, render } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { useState, type ReactNode } from "react"
 
 import { decorate, Injectable } from "../../src/container/decorators.js"
-import { App, Module } from "../../src/core/module/module.js"
+import { App } from "../../src/core/module/module.js"
 import { AppProvider } from "../../src/react/providers/AppProvider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
-import { useModuleContext, useModuleRebuild } from "../../src/react/hooks/useModuleContext.js"
 import { useResolveOptional } from "../../src/react/hooks/useResolve.js"
 import type { Provider } from "../../src/types.js"
 import { flush, type HookCounts } from "../setup/helpers.js"
 
-// Swapping the App under a live tree
+// Replacing the App under a live tree
 // ========================================
 //
-// `<AppProvider app={…}>` takes an instance the owner made, and nothing stops that prop from changing. The
-// App is the one module React does not own — AppProvider mounts and unmounts it but NEVER destroys it — so
-// a swap crosses the boundary between "React's business" and "the owner's business", and the two halves
-// have different rules. This file pins what actually happens, in both directions.
+// AppProvider captures its App on first render and owns it from there: it is inited during render, mounted
+// on effect, and unmounted + destroyed on cleanup. Handing a LIVE provider a different App instance is
+// therefore not a swap but an error — the captured app is the one the whole subtree was built against.
 //
-// The short version, measured: swapping FORWARD to a fresh App works completely. Swapping BACK to an App
-// that has already been through an AppProvider does not, and cannot — `mount()` refuses a module that has
-// been committed once, and only a destroy clears that flag. Those tests document the failure mode, they do
-// not bless it.
+// The factory form (`app={() => new App(...)}`) is exempt from that comparison, because a closure is a new
+// reference on every render and would otherwise trip the guard immediately. Once the factory has run, later
+// factory props are ignored; a later INSTANCE prop is still compared, and still throws.
 
 // Per-generation tracking
 // ========================================
@@ -76,26 +73,15 @@ function generational(log: string[], label: string): Generational {
 const LIVE: HookCounts = { init: 1, mount: 1, unmount: 0, destroy: 0 }
 /** Went through the full arc exactly once. */
 const BURIED: HookCounts = { init: 1, mount: 1, unmount: 1, destroy: 1 }
-/** Unmounted but never destroyed — what an App looks like after AppProvider lets go of it. */
-const RELEASED: HookCounts = { init: 1, mount: 1, unmount: 1, destroy: 0 }
-/** Built and inited, then held back because its parent was not mounted. */
-const GATED: HookCounts = { init: 1, mount: 0, unmount: 0, destroy: 0 }
 
 const counts = (subject: Generational): HookCounts[] => subject.lives.map((life) => life.counts)
 
 // Probes
 // ========================================
 
-/** Records every distinct module the context has handed this position in the tree. */
-function ModuleProbe({ into }: { into: Module[] }): ReactNode {
-    const { module } = useModuleContext()
-    if (into.at(-1) !== module) into.push(module)
-    return null
-}
-
-function Rebuilder({ capture }: { capture: (rebuild: () => void) => void }): ReactNode {
-    capture(useModuleRebuild())
-    return null
+function silenceReactErrorLog(): () => void {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    return () => spy.mockRestore()
 }
 
 function SafeProbe({ token, into }: { token: symbol; into: Array<string | undefined> }): ReactNode {
@@ -107,16 +93,31 @@ function SafeProbe({ token, into }: { token: symbol; into: Array<string | undefi
 const MARK = Symbol.for("tests.app-swap.mark")
 const ONLY_IN_A = Symbol.for("tests.app-swap.only-in-a")
 
-// Forward swap
-// ========================================
+const REPLACEMENT_ERROR = "AppProvider does not support replacing its App instance"
 
-describe("swapping <AppProvider app> for a fresh App", () => {
-    it("releases the old app, mounts the new one, and rebuilds the scoped children under it", async () => {
-        const log: string[] = []
-        const first = generational(log, "A")
-        const second = generational(log, "B")
-        const child = generational(log, "C")
-        const modules: Module[] = []
+describe("passing a different App to a live <AppProvider>", () => {
+    it("throws, naming the unsupported operation", () => {
+        const a = new App({ id: "a" })
+        const b = new App({ id: "b" })
+
+        function Tree({ app }: { app: App }): ReactNode {
+            return (
+                <AppProvider app={app}>
+                    <div />
+                </AppProvider>
+            )
+        }
+
+        const { rerender } = render(<Tree app={a} />)
+
+        const restore = silenceReactErrorLog()
+        expect(() => rerender(<Tree app={b} />)).toThrow(REPLACEMENT_ERROR)
+        restore()
+    })
+
+    it("throws before the incoming App is touched, and React tears the captured one down", () => {
+        const first = generational([], "A")
+        const second = generational([], "B")
 
         const a = new App({ id: "a", providers: [first.provider] })
         const b = new App({ id: "b", providers: [second.provider] })
@@ -124,166 +125,142 @@ describe("swapping <AppProvider app> for a fresh App", () => {
         function Tree({ app }: { app: App }): ReactNode {
             return (
                 <AppProvider app={app}>
-                    <ModuleProvider id="child" providers={[child.provider]}>
-                        <ModuleProbe into={modules} />
-                        <span data-testid="content">content</span>
-                    </ModuleProvider>
+                    <div />
                 </AppProvider>
             )
         }
 
         const { rerender } = render(<Tree app={a} />)
-        expect(counts(first)).toEqual([LIVE])
-        expect(counts(child)).toEqual([LIVE])
-        const oldChild = modules[0]!
-        log.length = 0
 
-        rerender(<Tree app={b} />)
-        await flush()
+        const restore = silenceReactErrorLog()
+        expect(() => rerender(<Tree app={b} />)).toThrow(REPLACEMENT_ERROR)
+        restore()
 
-        // MEASURED, EXACT — four things happen, in this order:
-        //
-        // 1. Render phase: AppProvider inits `b` (it is not initialized yet) before any child renders.
-        // 2. Commit, cleanup half: `a.unmount()` cascades children-first, so the OLD child's unmount hooks
-        //    run before the app's own.
-        // 3. Commit, setup half: `b.mount()`.
-        // 4. The child's parent-change effect sees a different module in context and rebuilds: a new
-        //    generation forked from `b`, the old one destroyed, the new one mounted last.
-        expect(log).toEqual([
-            "B#1:ctor",
-            "B#1:init",
-            "C#1:unmount",
-            "A#1:unmount",
-            "B#1:mount",
-            "C#2:ctor",
-            "C#2:init",
-            "C#1:destroy",
-            "C#2:mount",
-        ])
+        // The guard runs before anything reads the incoming App, so `b` is untouched — never inited, no
+        // instance ever built from it.
+        expect(b.initialized).toBe(false)
+        expect(counts(second)).toEqual([])
 
-        // `a` is RELEASED, not destroyed: AppProvider let go of it and the owner still owns it. It stays
-        // initialized and unclaimed, so `a.destroy()` remains the owner's call to make.
-        expect(counts(first)).toEqual([RELEASED])
+        // MEASURED: the throw is a render error, so React unwinds the tree and runs the effect cleanup —
+        // which is now a full teardown. The captured app goes down with the tree rather than being stranded.
+        expect(counts(first)).toEqual([BURIED])
         expect(a.initialized).toBe(true)
-        expect(a.mounted).toBe(false)
-        expect(a.claimed).toBe(false)
+        expect(a.claimed).toBe(true)
+    })
 
-        // `b` is fully live and owns the tree now.
-        expect(counts(second)).toEqual([LIVE])
-        expect(b.mounted).toBe(true)
+    it("re-renders with the SAME instance freely", () => {
+        const first = generational([], "A")
+        const a = new App({ id: "a", providers: [first.provider] })
 
-        // The child was buried by the rebuild, not orphaned: claimed, detached from `a`, and its
-        // replacement is attached to `b`.
-        expect(counts(child)).toEqual([BURIED, LIVE])
-        expect(oldChild.claimed).toBe(true)
-        expect(a.children.size).toBe(0)
-        expect([...b.children]).toEqual([modules.at(-1)])
-        expect(modules.length).toBe(2)
-        expect(modules.at(-1)?.parent).toBe(b)
+        function Tree({ app, n }: { app: App; n: number }): ReactNode {
+            return (
+                <AppProvider app={app}>
+                    <span data-testid="n">{n}</span>
+                </AppProvider>
+            )
+        }
+
+        const { rerender, getByTestId } = render(<Tree app={a} n={1} />)
+        rerender(<Tree app={a} n={2} />)
+        rerender(<Tree app={a} n={3} />)
+
+        expect(getByTestId("n").textContent).toBe("3")
+        expect(counts(first)).toEqual([LIVE])
+        expect(a.mounted).toBe(true)
     })
 })
 
-// Swapping back
-// ========================================
-
-describe("swapping back to an App that has already been mounted once", () => {
-    it("leaves a DEAD tree: the app refuses to re-mount and its children stay gated", async () => {
+describe("<AppProvider app={() => new App(...)}>", () => {
+    it("constructs once and runs the full cycle", async () => {
         const log: string[] = []
-        const appTracker = generational(log, "A")
-        const child = generational(log, "C")
-        const modules: Module[] = []
+        const tracker = generational(log, "A")
+        const apps: App[] = []
+        let built = 0
 
-        const a = new App({ id: "a", providers: [appTracker.provider] })
-        const b = new App({ id: "b" })
-
-        function Tree({ app }: { app: App }): ReactNode {
+        function Tree(): ReactNode {
             return (
-                <AppProvider app={app}>
-                    <ModuleProvider id="child" providers={[child.provider]}>
-                        <ModuleProbe into={modules} />
-                        <span data-testid="content">content</span>
-                    </ModuleProvider>
+                <AppProvider
+                    app={() => {
+                        built++
+                        const app = new App({ id: "factory", providers: [tracker.provider] })
+                        apps.push(app)
+                        return app
+                    }}
+                >
+                    <div />
                 </AppProvider>
             )
         }
 
-        const { rerender } = render(<Tree app={a} />)
-        rerender(<Tree app={b} />)
+        const { unmount } = render(<Tree />)
+
+        expect(built).toBe(1)
+        expect(apps.length).toBe(1)
+        expect(apps[0]!.initialized).toBe(true)
+        expect(apps[0]!.mounted).toBe(true)
+        expect(counts(tracker)).toEqual([LIVE])
+        expect(log).toEqual(["A#1:ctor", "A#1:init", "A#1:mount"])
+
+        unmount()
         await flush()
-        log.length = 0
 
-        rerender(<Tree app={a} />)
-        await flush()
-
-        // ==================== MEASURED — the dead tree, documented not blessed ====================
-        //
-        // `mount()` bails on `if (this.#committed) return`, and `#committed` is only cleared inside
-        // `#claimSubtree` — i.e. by a destroy. AppProvider never destroys, so an App it has unmounted is
-        // permanently un-mountable. Note what is NOT in this log: there is no second `A#1:mount`.
-        expect(log).toEqual(["C#2:unmount", "C#3:ctor", "C#3:init", "C#2:destroy"])
-        expect(counts(appTracker)).toEqual([RELEASED])
-        expect(a.initialized).toBe(true)
-        expect(a.claimed).toBe(false)
-        expect(a.mounted).toBe(false)
-
-        // The child follows its parent down. Its new generation is built, inited and even ATTACHED — the
-        // registry has it — but `mount()` gates on `parent.mounted`, which is false and can never become
-        // true, so the mount hooks never fire. A live React tree over a module that will never mount.
-        expect(counts(child)).toEqual([BURIED, BURIED, GATED])
-        expect(a.children.size).toBe(1)
-        expect(modules.length).toBe(3)
-        expect(modules.at(-1)?.parent).toBe(a)
-        expect(modules.at(-1)?.mounted).toBe(false)
+        expect(built).toBe(1)
+        expect(counts(tracker)).toEqual([BURIED])
+        expect(log).toEqual(["A#1:ctor", "A#1:init", "A#1:mount", "A#1:unmount", "A#1:destroy"])
+        expect(apps[0]!.claimed).toBe(true)
     })
 
-    it("cannot be rescued by rebuild() — only a fresh App instance brings the tree back", async () => {
-        const log: string[] = []
-        const child = generational(log, "C")
-        const modules: Module[] = []
-        let rebuild: () => void = () => {}
+    it("does not throw when the closure identity changes every render", () => {
+        const tracker = generational([], "A")
+        let built = 0
 
-        const a = new App({ id: "a" })
-        const b = new App({ id: "b" })
-        const c = new App({ id: "c" })
-
-        function Tree({ app }: { app: App }): ReactNode {
+        function Tree({ n }: { n: number }): ReactNode {
             return (
-                <AppProvider app={app}>
-                    <ModuleProvider id="child" providers={[child.provider]}>
-                        <Rebuilder capture={(fn) => (rebuild = fn)} />
-                        <ModuleProbe into={modules} />
-                    </ModuleProvider>
+                <AppProvider
+                    app={() => {
+                        built++
+                        return new App({ id: "factory", providers: [tracker.provider] })
+                    }}
+                >
+                    <span data-testid="n">{n}</span>
                 </AppProvider>
             )
         }
 
-        const { rerender } = render(<Tree app={a} />)
-        rerender(<Tree app={b} />)
-        await flush()
-        rerender(<Tree app={a} />)
-        await flush()
-        log.length = 0
+        const { rerender, getByTestId } = render(<Tree n={1} />)
+        rerender(<Tree n={2} />)
+        rerender(<Tree n={3} />)
 
-        // A rebuild only replaces the CHILD. The new generation forks the same un-mountable parent and is
-        // gated exactly like the one it replaced — rebuilding is not an escape hatch here.
-        await act(async () => rebuild())
-        await flush()
+        expect(getByTestId("n").textContent).toBe("3")
+        expect(built).toBe(1)
+        expect(counts(tracker)).toEqual([LIVE])
+    })
 
-        expect(log).toEqual(["C#4:ctor", "C#4:init", "C#3:destroy"])
-        expect(counts(child).at(-1)).toEqual(GATED)
-        expect(modules.at(-1)?.mounted).toBe(false)
-        expect(a.mounted).toBe(false)
-        log.length = 0
+    it("throws when a later render passes an instance instead of the factory", () => {
+        const factoryTracker = generational([], "F")
+        const otherTracker = generational([], "O")
+        const other = new App({ id: "other", providers: [otherTracker.provider] })
 
-        // A NEW App has never been committed, so it mounts normally and the parent-change rebuild brings
-        // the whole subtree back to life. That is the only escape: a fresh instance, not a reused one.
-        rerender(<Tree app={c} />)
-        await flush()
+        function Tree({ app }: { app: App | (() => App) }): ReactNode {
+            return (
+                <AppProvider app={app}>
+                    <div />
+                </AppProvider>
+            )
+        }
 
-        expect(c.mounted).toBe(true)
-        expect(counts(child).at(-1)).toEqual(LIVE)
-        expect(modules.at(-1)?.parent).toBe(c)
-        expect(modules.at(-1)?.mounted).toBe(true)
+        const { rerender } = render(
+            <Tree app={() => new App({ id: "factory", providers: [factoryTracker.provider] })} />
+        )
+
+        const restore = silenceReactErrorLog()
+        expect(() => rerender(<Tree app={other} />)).toThrow(REPLACEMENT_ERROR)
+        restore()
+
+        // The exemption is for FACTORY props only: once an instance shows up it is compared like any other,
+        // and it does not match what the factory built.
+        expect(other.initialized).toBe(false)
+        expect(counts(factoryTracker)).toEqual([BURIED])
     })
 })
 
@@ -339,17 +316,15 @@ describe("an <AppProvider> nested inside another app's tree", () => {
         expect(counts(outer)).toEqual([LIVE])
         expect(counts(inner)).toEqual([LIVE])
 
-        // Teardown is independent too: dropping the inner AppProvider unmounts b and leaves a alone — and
-        // b is only unmounted, never destroyed, because AppProvider never destroys anything.
         log.length = 0
         await act(async () => hide())
         await flush()
 
-        expect(log).toEqual(["Inner#1:unmount"])
-        expect(counts(inner)).toEqual([RELEASED])
+        expect(log).toEqual(["Inner#1:unmount", "Inner#1:destroy"])
+        expect(counts(inner)).toEqual([BURIED])
         expect(counts(outer)).toEqual([LIVE])
         expect(a.mounted).toBe(true)
         expect(b.mounted).toBe(false)
-        expect(b.claimed).toBe(false)
+        expect(b.claimed).toBe(true)
     })
 })
