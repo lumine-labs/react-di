@@ -1,6 +1,6 @@
 {
     "name": "@remodulo/mobx",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "MobX companion for @remodulo/react: a PropsAdapter that bridges React props into a stable MobX observable.",
     "license": "MIT",
     "author": "Egor Arkhipov (Lumine Labs)",
@@ -55,7 +55,7 @@
         "prepack": "pnpm run build"
     },
     "peerDependencies": {
-        "@remodulo/react": "workspace:*",
+        "@remodulo/react": "workspace:^",
         "mobx": "^6.0.0",
         "react": "^18.0.0 || ^19.0.0"
     },
