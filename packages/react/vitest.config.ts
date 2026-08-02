@@ -7,7 +7,7 @@ export default defineConfig({
         globals: true,
         setupFiles: ["./tests/setup/setupTests.ts"],
         include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
-        // tests/memory needs --expose-gc and a single fork; it has its own config and `npm run test:memory`.
+        // tests/memory needs --expose-gc and a single fork; it has its own config and `pnpm run test:memory`.
         exclude: [...defaultExclude, "tests/memory/**"],
         coverage: {
             provider: "v8",

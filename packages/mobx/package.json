@@ -1,0 +1,23 @@
+{
+    "name": "@remodulo/mobx",
+    "version": "0.0.0",
+    "private": true,
+    "description": "MobX bindings for remodulo. Placeholder — not yet implemented or published.",
+    "license": "MIT",
+    "author": "Egor Arkhipov (Lumine Labs)",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/lumine-labs/remodulo"
+    },
+    "type": "module",
+    "sideEffects": false,
+    "engines": {
+        "node": ">=18"
+    },
+    "scripts": {
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "devDependencies": {
+        "typescript": "^5.9.3"
+    }
+}

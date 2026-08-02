@@ -2,16 +2,22 @@
 /**
  * Typecheck the PUBLISHED declarations from the outside.
  *
- * `npm run typecheck` compiles `src/` under our own tsconfig and proves only that we are consistent
+ * `pnpm run typecheck` compiles `src/` under our own tsconfig and proves only that we are consistent
  * with ourselves. This runner installs the packed package into two throwaway consumer projects — one
  * on `@types/react` 18 with `moduleResolution: bundler`, one on `@types/react` 19 with NodeNext, both
  * stricter than we compile ourselves — and typechecks each against `dist/*.d.ts`.
  *
- * Requires `npm run build` first; it never builds, so what is checked is exactly what was built.
+ * Requires `pnpm run build` first; it never builds, so what is checked is exactly what was built.
+ *
+ * Why the consumers stay on npm while the repo is a pnpm workspace: the point of this gate is to
+ * simulate an EXTERNAL consumer installing the packed tarball. `pnpm install` would link them into the
+ * workspace and resolve `@remodulo/react` to the source directory, which is exactly the isolation this
+ * gate exists to avoid. `packageRoot` below resolves to `packages/react`, so the `file:../../..`
+ * dependency in each consumer packs that package and nothing else in the workspace.
  *
  * Why `--install-links`: a plain `file:` dependency is SYMLINKED into the consumer's `node_modules`,
  * and TypeScript resolves the symlink before looking for `react` — so the library's declarations would
- * be typechecked against the repo root's `@types/react` (always 19) no matter what the consumer pins,
+ * be typechecked against the package's own `@types/react` (always 19) no matter what the consumer pins,
  * which silently voids the whole react18 profile. `--install-links` copies the packed package instead
  * and installs its dependencies into the consumer's own tree, so `react` resolves consumer-locally.
  *
@@ -28,6 +34,7 @@ import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const consumersDir = dirname(fileURLToPath(import.meta.url))
+// packages/react — the package that gets packed, not the workspace root.
 const packageRoot = resolve(consumersDir, "..", "..")
 const packageName = "@remodulo/react"
 
@@ -72,9 +79,10 @@ function hashDeclarations(distDir) {
 /**
  * Every dependency the packed package declares must sit in the consumer's OWN tree.
  *
- * The consumers live inside the repo, so `node_modules` lookup walks up into the repo root — a
- * dependency missing from the consumer resolves there instead, at whatever version we happen to have,
- * and `skipLibCheck` swallows the difference. That is not hypothetical: a stale consumer lockfile kept
+ * The consumers live inside the package, so `node_modules` lookup walks up into `packages/react` and
+ * then the workspace root — a dependency missing from the consumer resolves there instead, at whatever
+ * version we happen to have, and `skipLibCheck` swallows the difference. That is not hypothetical: a
+ * stale consumer lockfile kept
  * installing `tsyringe` long after the package moved to `inversify`, and both profiles stayed green
  * because the root's copy answered every lookup.
  */
@@ -90,7 +98,7 @@ function assertDependenciesAreLocal(name, consumerDir, installedDir) {
     if (missing.length > 0) {
         fail(
             `${name}: ${missing.join(", ")} declared by ${packageName} but absent from the consumer's tree\n` +
-                `  their types would resolve from the repo root instead — delete ` +
+                `  their types would resolve from the package or workspace root instead — delete ` +
                 `${join(consumerDir, "package-lock.json")} and reinstall.`
         )
     }
@@ -101,17 +109,17 @@ function assertDependenciesAreLocal(name, consumerDir, installedDir) {
  *
  * `tsc` emits a complete `dist` even when the program has type errors, unless `noEmitOnError` says
  * otherwise — and a `dist` built before that flag existed looks perfectly well-formed from here. That is
- * not hypothetical either: this runner once reported both profiles green while `npm run typecheck:build`
+ * not hypothetical either: this runner once reported both profiles green while `pnpm run typecheck:build`
  * was failing on TS2459, because it only ever hashed whatever `dist` it found.
  *
  * Re-checking the build program costs a couple of seconds and never emits, so the property the header
  * promises still holds: what gets typechecked is exactly what was built.
  */
-run("npm", ["run", "typecheck:build"], packageRoot)
+run("pnpm", ["run", "typecheck:build"], packageRoot)
 
 const rootDist = join(packageRoot, "dist")
 if (!existsSync(join(rootDist, "index.d.ts"))) {
-    fail("dist/index.d.ts is missing — run `npm run build` before `npm run typecheck:consumers`.")
+    fail("dist/index.d.ts is missing — run `pnpm run build` before `pnpm run typecheck:consumers`.")
 }
 
 const expected = hashDeclarations(rootDist)

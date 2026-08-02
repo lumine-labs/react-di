@@ -1,4 +1,4 @@
-﻿{
+{
     "compilerOptions": {
         "target": "ES2022",
         "module": "ES2022",
@@ -13,10 +13,6 @@
         "esModuleInterop": true,
         "forceConsistentCasingInFileNames": true,
 
-        "noEmit": true,
-
-        "baseUrl": "."
-    },
-    "include": ["src/**/*.ts", "src/**/*.tsx"],
-    "exclude": ["dist", "node_modules"]
+        "noEmit": true
+    }
 }

@@ -11,15 +11,18 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
+            # Version comes from the root package.json "packageManager" field.
+            - uses: pnpm/action-setup@v4
             - uses: actions/setup-node@v4
               with:
                   node-version: 20
-                  cache: npm
-            - run: npm ci
-            - run: npm run typecheck
-            - run: npm run typecheck:tests
-            - run: npm run test
-            - run: npm run build
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm run typecheck
+            - run: pnpm run typecheck:tests
+            - run: pnpm run test
+            - run: pnpm run build
             # Typechecks the built dist/*.d.ts from two throwaway consumer projects
             # (@types/react 18 + bundler, @types/react 19 + NodeNext). Must follow build.
-            - run: npm run typecheck:consumers
+            # Those two stay on npm on purpose — they simulate an external consumer.
+            - run: pnpm run typecheck:consumers

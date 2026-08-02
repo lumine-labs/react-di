@@ -1,0 +1,89 @@
+{
+    "name": "@remodulo/react",
+    "version": "0.7.0",
+    "description": "Non-reactive dependency injection library for React built on top of inversify with immutable module scopes.",
+    "license": "MIT",
+    "author": "Egor Arkhipov (Lumine Labs)",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/lumine-labs/remodulo"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "keywords": [
+        "react",
+        "dependency-injection",
+        "di",
+        "ioc",
+        "inversify",
+        "typescript",
+        "module-scope",
+        "frontend-architecture"
+    ],
+    "type": "module",
+    "sideEffects": false,
+    "engines": {
+        "node": ">=18"
+    },
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "default": "./dist/index.js"
+        },
+        "./types": {
+            "types": "./dist/types.d.ts",
+            "import": "./dist/types.js",
+            "default": "./dist/types.js"
+        },
+        "./core": {
+            "types": "./dist/core.d.ts",
+            "import": "./dist/core.js",
+            "default": "./dist/core.js"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE.md"
+    ],
+    "scripts": {
+        "clean": "rimraf dist",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "typecheck:build": "tsc -p tsconfig.build.json --noEmit",
+        "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
+        "typecheck:consumers": "node ./tests/consumers/run.mjs",
+        "build": "pnpm run clean && tsc -p tsconfig.build.json",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage",
+        "test:memory": "node ./tests/memory/run-memory-tests.mjs",
+        "scratch": "tsx scratch/playground.ts",
+        "prepack": "pnpm run build"
+    },
+    "peerDependencies": {
+        "react": "^18.0.0 || ^19.0.0"
+    },
+    "dependencies": {
+        "@luminelabs/react-toolkit": "^0.1.1",
+        "@luminelabs/toolkit": "^0.1.1",
+        "inversify": "^8.2.3"
+    },
+    "devDependencies": {
+        "@testing-library/jest-dom": "^6.9.1",
+        "@testing-library/react": "^16.3.2",
+        "@types/node": "^25.5.0",
+        "@types/react": "^19.2.14",
+        "@vitest/coverage-v8": "^4.1.0",
+        "jsdom": "^29.0.0",
+        "react-dom": "^19.2.4",
+        "reflect-metadata": "^0.2.2",
+        "rimraf": "^6.1.3",
+        "tsx": "^4.21.0",
+        "typescript": "^5.9.3",
+        "vite": "^8.0.1",
+        "vitest": "^4.1.0"
+    }
+}
