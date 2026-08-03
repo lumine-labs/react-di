@@ -48,8 +48,9 @@ export function makeInheritedAutoObservable<T extends object, AdditionalKeys ext
         )
     }
 
-    const cache = target as unknown as Record<PropertyKey, AnnotationsMap<T, AdditionalKeys> | undefined>
-    let annotations = cache[annotationsSymbol]
+    const proto = Object.getPrototypeOf(target) as object | null
+    let annotations = (proto ? Object.getOwnPropertyDescriptor(proto, annotationsSymbol)?.value : undefined) as
+        AnnotationsMap<T, AdditionalKeys> | undefined
 
     if (!annotations) {
         annotations = {} as AnnotationsMap<T, AdditionalKeys>
@@ -65,17 +66,14 @@ export function makeInheritedAutoObservable<T extends object, AdditionalKeys ext
             current = Object.getPrototypeOf(current)
         }
 
-        const proto = Object.getPrototypeOf(target)
         if (proto && proto !== objectPrototype) {
             Object.defineProperty(proto, annotationsSymbol, { value: annotations })
         }
     } else {
-        // Cached map: keep only the annotations whose keys this instance actually has, since
-        // `makeObservable` rejects annotations for absent properties.
         const cached = annotations as unknown as Record<PropertyKey, unknown>
         const applicable: Record<PropertyKey, unknown> = {}
-        for (const key in target) {
-            if (cached[key]) {
+        for (const key of Reflect.ownKeys(cached)) {
+            if (key in target) {
                 applicable[key] = cached[key]
             }
         }
