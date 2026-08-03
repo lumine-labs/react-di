@@ -86,7 +86,7 @@ describe("PropsRef through constructor injection", () => {
         const Service = injectingService(TOKEN)
         const UserModule = createModuleComponent<UserProps, Boxed>(
             { providers: [Service as unknown as Provider] },
-            { adapter, token: TOKEN }
+            { propsAdapter: adapter, propsToken: TOKEN }
         )
 
         let resolved: InstanceType<typeof Service> | null = null

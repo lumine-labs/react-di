@@ -813,8 +813,8 @@ describe("PropsRef per sibling module", () => {
         const adapterB = makeAdapter()
 
         // Same default class token in both — they never collide, because each mount owns its container.
-        const ModuleA = createModuleComponent<Point, Boxed<Point>>({}, { adapter: adapterA })
-        const ModuleB = createModuleComponent<Point, Boxed<Point>>({}, { adapter: adapterB })
+        const ModuleA = createModuleComponent<Point, Boxed<Point>>({}, { propsAdapter: adapterA })
+        const ModuleB = createModuleComponent<Point, Boxed<Point>>({}, { propsAdapter: adapterB })
 
         let refA: PropsRef<Boxed<Point>> | null = null
         let refB: PropsRef<Boxed<Point>> | null = null
@@ -882,7 +882,7 @@ describe("PropsRef per sibling module", () => {
 
     it("runs create once per mount even when both siblings share one adapter object", () => {
         const shared = makeAdapter()
-        const PointModule = createModuleComponent<Point, Boxed<Point>>({}, { adapter: shared })
+        const PointModule = createModuleComponent<Point, Boxed<Point>>({}, { propsAdapter: shared })
 
         const refs: PropsRef<Boxed<Point>>[] = []
 
@@ -1008,7 +1008,7 @@ describe("PropsRef resolution through nested module scopes", () => {
         const CHILD: InjectionToken<PropsRef<{ n: number }>> = Symbol.for("tests.props.torture.child-token")
 
         const Outer = createModuleComponent<Who>()
-        const Inner = createModuleComponent<{ n: number }>({}, { token: CHILD })
+        const Inner = createModuleComponent<{ n: number }>({}, { propsToken: CHILD })
 
         let byClass: PropsRef<Who> | null = null
         let byToken: PropsRef<{ n: number }> | null = null

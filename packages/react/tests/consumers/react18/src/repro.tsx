@@ -938,10 +938,10 @@ const UserFactoryModule = createModuleComponent<UserProps>((props) => {
 })
 type _UserFactoryModuleProps = Expect<Equals<typeof UserFactoryModule, ComponentType<UserProps & { children?: ReactNode }>>>
 
-// (c) `{ adapter, token }` — the component's props stay `P` while the bridged value becomes `T`.
+// (c) `{ propsAdapter, propsToken }` — the component's props stay `P` while the bridged value becomes `T`.
 const UserVMModule = createModuleComponent<UserProps, UserVM>(
     { providers: moduleProviders },
-    { adapter: userAdapter, token: USER_VM }
+    { propsAdapter: userAdapter, propsToken: USER_VM }
 )
 type _UserVMModuleProps = Expect<Equals<typeof UserVMModule, ComponentType<UserProps & { children?: ReactNode }>>>
 
@@ -952,9 +952,82 @@ const BareModule = createModuleComponent()
 const FeaturedModule = createModuleComponent<UserProps>({ providers: [ROOT_FEATURE, ...moduleProviders] })
 type _FeaturedModuleProps = Expect<Equals<typeof FeaturedModule, ComponentType<UserProps & { children?: ReactNode }>>>
 
+// (f) a `PropsRef` subclass as the token. A subclass is a distinct class and therefore a distinct
+// injection token, which is how two SIBLING boundaries each own their own props binding with no token
+// ceremony — the same idiom `Ref` subclasses use for elements. The capability is old; `propsToken` is
+// what makes it findable at this position.
+class UserPropsRef extends PropsRef<UserProps> {}
+const SubclassTokenModule = createModuleComponent<UserProps>({}, { propsToken: UserPropsRef })
+type _SubclassTokenModuleProps = Expect<
+    Equals<typeof SubclassTokenModule, ComponentType<UserProps & { children?: ReactNode }>>
+>
+
+// The same with an adapter, so `T !== P` and the subclass names the ADAPTED type.
+class UserVMRef extends PropsRef<UserVM> {}
+const SubclassVMModule = createModuleComponent<UserProps, UserVM>(
+    {},
+    { propsAdapter: userAdapter, propsToken: UserVMRef }
+)
+type _SubclassVMModuleProps = Expect<
+    Equals<typeof SubclassVMModule, ComponentType<UserProps & { children?: ReactNode }>>
+>
+
 // @ts-expect-error the adapter's input is the component's props, not the bridged type.
-const mismatchedAdapterModule = createModuleComponent<UserProps, UserVM>({}, { adapter: { create: (initial: UserVM) => initial, update: ({ current }) => current } })
+const mismatchedAdapterModule = createModuleComponent<UserProps, UserVM>({}, { propsAdapter: { create: (initial: UserVM) => initial, update: ({ current }) => current } })
 void mismatchedAdapterModule
+
+// @ts-expect-error a subclass of the WRONG bridged type is not this boundary's token.
+const mismatchedSubclassTokenModule = createModuleComponent<UserProps>({}, { propsToken: UserVMRef })
+void mismatchedSubclassTokenModule
+
+// The old flat names are dead at this position — 0.9.0 renamed them. Both values below are legal
+// `propsAdapter` / `propsToken` values, so the key name is the only thing wrong with either line.
+
+// @ts-expect-error `token` is now `propsToken` on the createModuleComponent options.
+const oldTokenOptionModule = createModuleComponent<UserProps>({}, { token: UserPropsRef })
+void oldTokenOptionModule
+
+// @ts-expect-error `adapter` is now `propsAdapter` on the createModuleComponent options.
+const oldAdapterOptionModule = createModuleComponent<UserProps, UserVM>({}, { adapter: userAdapter })
+void oldAdapterOptionModule
+
+// @ts-expect-error both old names together, which is what a straight 0.8.0 call site looks like.
+const oldBothOptionsModule = createModuleComponent<UserProps, UserVM>({}, { adapter: userAdapter, token: USER_VM })
+void oldBothOptionsModule
+
+// Reachable through an annotated variable too, not just a fresh literal at the call site.
+// @ts-expect-error `token` is not a key of CreateModuleComponentOptions.
+const oldTokenOptions: CreateModuleComponentOptions<UserProps> = { token: UserPropsRef }
+void oldTokenOptions
+
+// What excess-property checking does NOT reach. An inferred object with at least one key in common
+// passes both the freshness check (it is not a fresh literal here) and weak-type detection (there IS an
+// overlap), so the stray `token` rides along silently and is simply ignored at runtime. Deliberately
+// left undirected: it compiles today, and the day it stops the directive-free line is the signal.
+const strayAlongsideGoodKey = { propsToken: UserPropsRef, token: UserPropsRef }
+const strayAlongsideGoodKeyModule = createModuleComponent<UserProps>({}, strayAlongsideGoodKey)
+void strayAlongsideGoodKeyModule
+
+// Only-old-names via a variable IS caught, but by weak-type detection rather than excess properties:
+// every key of the target is optional, so an argument sharing none of them is rejected outright.
+const onlyOldNames = { adapter: userAdapter, token: USER_VM }
+// @ts-expect-error no properties in common with CreateModuleComponentOptions — the weak-type rule.
+const onlyOldNamesModule = createModuleComponent<UserProps, UserVM>({}, onlyOldNames)
+void onlyOldNamesModule
+
+// The structural guard that holds regardless of how the object reaches the parameter.
+type _CreateOptionsHasPropsAdapter = Expect<HasKey<CreateModuleComponentOptions<UserProps, UserVM>, "propsAdapter">>
+type _CreateOptionsHasPropsToken = Expect<HasKey<CreateModuleComponentOptions<UserProps, UserVM>, "propsToken">>
+type _CreateOptionsHasNoAdapter = Expect<Not<HasKey<CreateModuleComponentOptions<UserProps, UserVM>, "adapter">>>
+type _CreateOptionsHasNoToken = Expect<Not<HasKey<CreateModuleComponentOptions<UserProps, UserVM>, "token">>>
+
+// And the hook keeps the short names: the rename is the BOUNDARY's, scoped by `createModuleComponent`,
+// while `usePropsRef`'s own name already scopes its options. The two shapes are no longer one alias.
+type _UsePropsRefOptionsHasAdapter = Expect<HasKey<UsePropsRefOptions<UserProps, UserVM>, "adapter">>
+type _UsePropsRefOptionsHasToken = Expect<HasKey<UsePropsRefOptions<UserProps, UserVM>, "token">>
+type _OptionsShapesAreNotTheSameType = Expect<
+    Not<Equals<CreateModuleComponentOptions<UserProps, UserVM>, UsePropsRefOptions<UserProps, UserVM>>>
+>
 
 // The module component's props are exactly `P & { children?: ReactNode }`.
 
@@ -972,7 +1045,7 @@ void moduleMistypedProp
 
 // Typed parameter values, so the parameter unions stay pinned as well.
 const createParams: CreateModuleComponentParams<UserProps> = (props) => ({ id: `user-${props.userId}`, providers: [ApiClient] })
-const createOptions: CreateModuleComponentOptions<UserProps, UserVM> = { adapter: userAdapter, token: USER_VM }
+const createOptions: CreateModuleComponentOptions<UserProps, UserVM> = { propsAdapter: userAdapter, propsToken: USER_VM }
 const moduleParams: ModuleParams = { id: "scoped", providers: [ApiClient] }
 const providerProps: ModuleProviderProps = { providers: [ApiClient], rebuildOn: [1, "a"], children: null }
 

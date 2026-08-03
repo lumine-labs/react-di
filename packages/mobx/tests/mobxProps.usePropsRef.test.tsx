@@ -23,7 +23,7 @@ const TrackerModule = createModuleComponent<Coords>(
     {
         providers: [{ provide: Tracker, useFactory: (ref: PropsRef<Coords>) => new Tracker(ref), inject: [PropsRef] }],
     },
-    { adapter }
+    { propsAdapter: adapter }
 )
 
 let capturedTracker: Tracker | null = null

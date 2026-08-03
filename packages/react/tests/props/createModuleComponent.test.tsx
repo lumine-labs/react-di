@@ -8,7 +8,8 @@ import { PropsRef, type PropsAdapter } from "../../src/core/providers/props-ref/
 import { useContainer, useModuleContext } from "../../src/react/hooks/useModuleContext.js"
 import { useResolve, useResolveOptional } from "../../src/react/hooks/useResolve.js"
 import { Container } from "../../src/container/index.js"
-import type { InjectionToken } from "../../src/container/index.js"
+import { Inject, Injectable, decorate } from "../../src/container/decorators.js"
+import type { InjectionToken, Provider } from "../../src/container/index.js"
 import { Root } from "../setup/react.js"
 
 // `createModuleComponent` is a scoped `ModuleProvider` plus an automatic props bridge: whatever the component is
@@ -220,10 +221,10 @@ describe("createModuleComponent with a params callback", () => {
     })
 })
 
-// Options: adapter + token
+// Options: propsAdapter + propsToken
 // ========================================
 
-describe("createModuleComponent with { adapter, token }", () => {
+describe("createModuleComponent with { propsAdapter, propsToken }", () => {
     type Point = { x: number }
     type Boxed = { boxed: Point }
 
@@ -238,7 +239,7 @@ describe("createModuleComponent with { adapter, token }", () => {
             }),
         }
 
-        const PointModule = createModuleComponent<Point, Boxed>({}, { adapter, token: CUSTOM })
+        const PointModule = createModuleComponent<Point, Boxed>({}, { propsAdapter: adapter, propsToken: CUSTOM })
 
         let boxed: PropsRef<Boxed> | undefined
         let byClass: PropsRef<unknown> | undefined
@@ -517,7 +518,7 @@ describe("createModuleComponent rebuilding on a props-derived key", () => {
 
         const AdaptedModule = createModuleComponent<UserProps, Boxed>(
             (props) => ({ rebuildOn: [props.userId] }),
-            { adapter, token: TOKEN }
+            { propsAdapter: adapter, propsToken: TOKEN }
         )
 
         let boxed: PropsRef<Boxed> | null = null
@@ -578,5 +579,242 @@ describe("createModuleComponent rebuilding on a props-derived key", () => {
 
         expect(first.seen).toHaveLength(firstCount)
         expect(second.seen.at(-1)).toEqual({ userId: "u2", name: "Dee" })
+    })
+})
+
+// Sibling boundaries with their own props tokens
+// ========================================
+//
+// The D6 dogfood round concluded that sibling module components cannot each own a distinct props token,
+// so both siblings' services would fight over the one `PropsRef` class token. They can, and the capability
+// predates the rename — it was `{ token }`, inherited from `usePropsRefOptions` and never found. A
+// `PropsRef` subclass is a distinct class and therefore a distinct injection token, exactly as `Ref`
+// subclasses are for elements; `propsToken` is where a boundary names one.
+//
+// The subclass is a token, not a constructed type: the value registered under it is the plain `PropsRef`
+// the hook made, so `instanceof` the subclass is false. Pinned below rather than glossed over.
+
+describe("createModuleComponent with a PropsRef subclass as propsToken", () => {
+    type LeftProps = { label: string }
+    type RightProps = { count: number }
+    type RightVM = { doubled: number }
+
+    class LeftPropsRef extends PropsRef<LeftProps> {}
+    class RightPropsRef extends PropsRef<RightProps> {}
+    class RightVMRef extends PropsRef<RightVM> {}
+
+    /** A child service that injects ONE token's bridge — what a real service inside a boundary looks like. */
+    function readerOf<T>(token: InjectionToken<PropsRef<T>>) {
+        const Service = class {
+            readonly seen: T[] = []
+
+            constructor(readonly props: PropsRef<T>) {
+                props.onUpdate((next) => void this.seen.push(next))
+            }
+        }
+
+        decorate(Injectable(), Service)
+        decorate(Inject(token), Service, 0)
+
+        return Service
+    }
+
+    it("gives each sibling its own bridge under its own subclass token", () => {
+        const LeftService = readerOf<LeftProps>(LeftPropsRef)
+        const RightService = readerOf<RightProps>(RightPropsRef)
+
+        const LeftModule = createModuleComponent<LeftProps>(
+            { providers: [LeftService as unknown as Provider] },
+            { propsToken: LeftPropsRef }
+        )
+        const RightModule = createModuleComponent<RightProps>(
+            { providers: [RightService as unknown as Provider] },
+            { propsToken: RightPropsRef }
+        )
+
+        let left: InstanceType<typeof LeftService> | null = null
+        let right: InstanceType<typeof RightService> | null = null
+
+        function LeftProbe() {
+            left = useResolve(LeftService)
+            return null
+        }
+
+        function RightProbe() {
+            right = useResolve(RightService)
+            return null
+        }
+
+        render(
+            <Root id="app">
+                <LeftModule label="ann">
+                    <LeftProbe />
+                </LeftModule>
+                <RightModule count={7}>
+                    <RightProbe />
+                </RightModule>
+            </Root>
+        )
+
+        expect(left!.props.current).toEqual({ label: "ann" })
+        expect(right!.props.current).toEqual({ count: 7 })
+        expect(left!.props).not.toBe(right!.props)
+    })
+
+    it("keeps each sibling's token out of the other's container and off the app", () => {
+        const LeftModule = createModuleComponent<LeftProps>({}, { propsToken: LeftPropsRef })
+        const RightModule = createModuleComponent<RightProps>({}, { propsToken: RightPropsRef })
+
+        let inLeft: Record<string, unknown> = {}
+        let inRight: Record<string, unknown> = {}
+        let app: Container | null = null
+
+        function LeftProbe() {
+            inLeft = {
+                own: useResolveOptional(LeftPropsRef),
+                sibling: useResolveOptional(RightPropsRef),
+                base: useResolveOptional(PropsRef),
+            }
+            return null
+        }
+
+        function RightProbe() {
+            inRight = {
+                own: useResolveOptional(RightPropsRef),
+                sibling: useResolveOptional(LeftPropsRef),
+                base: useResolveOptional(PropsRef),
+            }
+            return null
+        }
+
+        function AppProbe() {
+            app = useContainer()
+            return null
+        }
+
+        render(
+            <Root id="app">
+                <AppProbe />
+                <LeftModule label="ann">
+                    <LeftProbe />
+                </LeftModule>
+                <RightModule count={7}>
+                    <RightProbe />
+                </RightModule>
+            </Root>
+        )
+
+        expect(inLeft.own).toBeInstanceOf(PropsRef)
+        expect(inRight.own).toBeInstanceOf(PropsRef)
+
+        // The subclass names the binding; it never constructs it.
+        expect(inLeft.own).not.toBeInstanceOf(LeftPropsRef)
+
+        // Neither sibling can reach the other's token, and a custom token leaves the class token unbound.
+        expect(inLeft.sibling).toBeUndefined()
+        expect(inRight.sibling).toBeUndefined()
+        expect(inLeft.base).toBeUndefined()
+        expect(inRight.base).toBeUndefined()
+
+        expect(app!.isRegistered(LeftPropsRef, "self")).toBe(false)
+        expect(app!.isRegistered(RightPropsRef, "self")).toBe(false)
+    })
+
+    it("delivers an update only to the sibling whose props changed", () => {
+        const LeftService = readerOf<LeftProps>(LeftPropsRef)
+        const RightService = readerOf<RightProps>(RightPropsRef)
+
+        const LeftModule = createModuleComponent<LeftProps>(
+            { providers: [LeftService as unknown as Provider] },
+            { propsToken: LeftPropsRef }
+        )
+        const RightModule = createModuleComponent<RightProps>(
+            { providers: [RightService as unknown as Provider] },
+            { propsToken: RightPropsRef }
+        )
+
+        let left: InstanceType<typeof LeftService> | null = null
+        let right: InstanceType<typeof RightService> | null = null
+        let setLabel: ((label: string) => void) | null = null
+
+        function LeftProbe() {
+            left = useResolve(LeftService)
+            return null
+        }
+
+        function RightProbe() {
+            right = useResolve(RightService)
+            return null
+        }
+
+        function Harness() {
+            const [label, setLabelState] = useState("ann")
+            setLabel = setLabelState
+            return (
+                <Root id="app">
+                    <LeftModule label={label}>
+                        <LeftProbe />
+                    </LeftModule>
+                    <RightModule count={7}>
+                        <RightProbe />
+                    </RightModule>
+                </Root>
+            )
+        }
+
+        render(<Harness />)
+        act(() => setLabel?.("bob"))
+
+        expect(left!.seen).toEqual([{ label: "bob" }])
+        expect(right!.seen).toEqual([])
+        expect(right!.props.current).toEqual({ count: 7 })
+    })
+
+    it("adapts through propsAdapter into a subclass propsToken", () => {
+        const adapter: PropsAdapter<RightProps, RightVM> = {
+            create: vi.fn((initial: RightProps) => ({ doubled: initial.count * 2 })),
+            update: vi.fn(({ current, next }: { current: RightVM; next: RightProps }) => {
+                current.doubled = next.count * 2
+                return current
+            }),
+        }
+
+        const VMService = readerOf<RightVM>(RightVMRef)
+        const VMModule = createModuleComponent<RightProps, RightVM>(
+            { providers: [VMService as unknown as Provider] },
+            { propsAdapter: adapter, propsToken: RightVMRef }
+        )
+
+        let vm: InstanceType<typeof VMService> | null = null
+        let setCount: ((count: number) => void) | null = null
+
+        function Probe() {
+            vm = useResolve(VMService)
+            return null
+        }
+
+        function Harness() {
+            const [count, setCountState] = useState(3)
+            setCount = setCountState
+            return (
+                <Root id="app">
+                    <VMModule count={count}>
+                        <Probe />
+                    </VMModule>
+                </Root>
+            )
+        }
+
+        render(<Harness />)
+
+        expect(adapter.create).toHaveBeenCalledTimes(1)
+        expect(vm!.props.current).toEqual({ doubled: 6 })
+
+        const target = vi.mocked(adapter.create).mock.results[0]!.value
+        act(() => setCount?.(5))
+
+        expect(adapter.update).toHaveBeenCalledWith({ current: target, next: { count: 5 } })
+        expect(vm!.props.current).toEqual({ doubled: 10 })
+        expect(vm!.seen).toEqual([{ doubled: 10 }])
     })
 })
