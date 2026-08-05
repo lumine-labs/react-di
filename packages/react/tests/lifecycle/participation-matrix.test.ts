@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
 
-import { Inject, Injectable, Scope, decorate } from "../../src/container/index.js"
-import type { Constructor, Provider } from "../../src/container/index.js"
+import { Scope, inject } from "@remodulo/container"
+import type { Constructor } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { Resolver } from "../../src/core/providers/resolver/resolver.provider.js"
 import { makeApp, makeChild } from "../setup/helpers.js"
 import type { Module } from "../../src/core/module/module.js"
@@ -76,7 +77,6 @@ function instrumented(label: string, log: string[]): Instrumented {
         }
     }
 
-    decorate(Injectable(), Service)
     return Service as unknown as Instrumented
 }
 
@@ -390,13 +390,12 @@ describe("adopted — value forms", () => {
         // An eager provider reaches for the lazy collection from its own onModuleInit, so the members
         // arrive mid-init — before the module has mounted, and the mount cascade still has them.
         const Puller = class {
-            constructor(readonly resolver: Resolver) {}
+            readonly resolver = inject(Resolver)
+
             onModuleInit(): void {
                 this.resolver.resolveAll(TOKEN)
             }
         }
-        decorate(Injectable(), Puller)
-        decorate(Inject(Resolver) as ParameterDecorator, Puller, 0)
 
         const module = makeApp({
             providers: [
@@ -729,13 +728,12 @@ describe("never adopted — request scope", () => {
         const Requested = instrumented("R", log)
 
         const Owner = class {
-            constructor(readonly dep: unknown) {}
+            readonly dep = inject(OTHER)
+
             onModuleInit(): void {
                 log.push("O#1:init")
             }
         }
-        decorate(Injectable(), Owner)
-        decorate(Inject(OTHER) as ParameterDecorator, Owner, 0)
 
         const module = makeApp({
             providers: [

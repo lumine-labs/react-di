@@ -2,11 +2,11 @@ import { act, render } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import { useState, type JSX, type ReactNode } from "react"
 
-import { Inject, Injectable, decorate } from "../../src/container/index.js"
+import { inject } from "@remodulo/container"
 import { Ref, RefMap } from "../../src/core/providers/ref/ref.provider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useResolve } from "../../src/react/hooks/useResolve.js"
-import type { Constructor, Provider } from "../../src/types.js"
+import type { Provider } from "../../src/types.js"
 import { Root } from "../setup/react.js"
 
 // Element holders against a real tree
@@ -21,7 +21,8 @@ import { Root } from "../setup/react.js"
 //      `onModuleUnmount` sees null.
 //   3. a `rebuildOn` swap builds a new module, so the new generation resolves a FRESH holder.
 //
-// vitest transforms with esbuild — no `design:paramtypes` — so every class goes through `decorate()`.
+// No decorators and no metadata emit: the service reads its holder with `inject()` from the kernel's
+// construction frame.
 
 class InputRef extends Ref<HTMLInputElement> {}
 class FieldRefs extends RefMap<HTMLInputElement> {}
@@ -29,7 +30,7 @@ class FieldRefs extends RefMap<HTMLInputElement> {}
 /** A service that records `ref.current` at each lifecycle phase it is asked about. */
 function reader(seen: Record<string, HTMLElement | null | undefined>): Provider {
     const Service = class {
-        constructor(private readonly ref: InputRef) {}
+        private readonly ref = inject(InputRef)
 
         onModuleInit(): void {
             seen.init = this.ref.current
@@ -42,8 +43,6 @@ function reader(seen: Record<string, HTMLElement | null | undefined>): Provider 
         }
     }
 
-    decorate(Injectable(), Service)
-    decorate(Inject(InputRef) as ParameterDecorator, Service as unknown as Constructor, 0)
     return Service as unknown as Provider
 }
 

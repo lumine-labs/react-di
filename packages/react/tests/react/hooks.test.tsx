@@ -2,8 +2,8 @@ import { act, render } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useState, type ReactNode } from "react"
 
-import { Container, Injectable, Scope, decorate } from "../../src/container/index.js"
-import type { ResolveAllMode, ResolveMode } from "../../src/container/index.js"
+import { Container, Scope } from "@remodulo/container"
+import type { ResolveAllMode, ResolveMode } from "@remodulo/container"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useContainer, useModuleContext, useModuleRebuild } from "../../src/react/hooks/useModuleContext.js"
 import { useResolve, useResolveOptional } from "../../src/react/hooks/useResolve.js"
@@ -18,7 +18,6 @@ class Counter {
 
     readonly seq = ++Counter.made
 }
-decorate(Injectable(), Counter)
 
 const TRANSIENT_COUNTER = { provide: Counter, useClass: Counter, scope: Scope.Transient } as const
 
@@ -89,7 +88,7 @@ describe("useResolve", () => {
                     <Probe />
                 </Root>
             )
-        ).toThrowError(new Error("Token tests.hooks.missing is not registered in this container or any ancestor."))
+        ).toThrowError("Token tests.hooks.missing is not registered in this container or any ancestor.")
 
         restore()
     })
@@ -111,9 +110,7 @@ describe("useResolve", () => {
                 </Root>
             )
         ).toThrowError(
-            new Error(
-                'Token tests.hooks.shared is not registered in this container (mode "self" reads its own bindings only). Use "nearest" to search its ancestors too.'
-            )
+            'Token tests.hooks.shared is not registered in this container (mode "self" reads its own bindings only). Use "nearest" to search its ancestors too.'
         )
 
         restore()

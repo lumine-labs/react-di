@@ -1,10 +1,15 @@
 /**
  * Type-regression consumer.
  *
- * This file is compiled against the PUBLISHED declarations — `node_modules/@remodulo/react/dist`,
- * installed from the packed package, never from `src` and never through a path alias. `npm run
- * typecheck` in the repo root only proves `src/` is self-consistent under our own tsconfig; this proves
- * the emitted `.d.ts` still means something in somebody else's project.
+ * This file is compiled against the PUBLISHED declarations — `node_modules/@remodulo/react/dist` and
+ * `node_modules/@remodulo/container/dist`, both installed from packed tarballs, never from `src` and
+ * never through a path alias. `npm run typecheck` in the repo only proves `src/` is self-consistent
+ * under our own tsconfig; this proves the emitted `.d.ts` still means something in somebody else's
+ * project.
+ *
+ * Two packages, because 0.10.0 is two packages: the React runtime declares `@remodulo/container` as a
+ * dependency, so a consumer that installs one installs both, and the boundary between them — what each
+ * entry point does and does NOT export — is itself part of the contract this file pins.
  *
  * Nothing here runs. `tsc --noEmit` is the entire test, and two kinds of assertion carry the weight:
  *
@@ -20,26 +25,21 @@
  * under test; the source is the control.
  */
 
-// Not required by the package any more — Inversify carries its own metadata and never reads
-// `design:paramtypes` — but decorator-using apps still commonly load it, and the consumer declares it.
-import "reflect-metadata"
+// No `import "reflect-metadata"`, and no decorator flags in either tsconfig. 0.10.0 dropped the
+// decorator surface for ambient `inject()`, so the polyfill and the compiler options that used to be
+// the price of entry are both gone — and their absence here is what proves the claim. The runner
+// additionally scans the installed `dist` of both packages for the string.
 
 import { useState } from "react"
 import type { ComponentType, ReactElement, ReactNode } from "react"
 
-// The package was `@luminelabs/react-di` until the 2026-08-01 rename to `@remodulo/react`; specifier only.
 import {
     App,
     AppProvider,
     Container,
-    Inject,
-    InjectAll,
-    Injectable,
-    LazyToken,
     Module,
     ModuleProvider,
     ModuleRegistry,
-    Optional,
     PropsRef,
     Ref,
     RefMap,
@@ -51,9 +51,14 @@ import {
     Token,
     createFeature,
     createModuleComponent,
-    decorate,
+    inject,
+    injectAll,
+    injectContainer,
+    injectOptional,
     makeTokenizer,
+    runInInjectionContext,
     useContainer,
+    useModule,
     useModuleContext,
     useModuleRebuild,
     usePropsRef,
@@ -63,18 +68,25 @@ import {
 } from "@remodulo/react"
 
 // The `./types` subpath has to carry the whole type surface on its own — a consumer that only wants
-// types must never have to reach into `.` or into `dist/`.
+// types must never have to reach into `.` or into `dist/`. Since 0.10.0 that includes the kernel types
+// the React package re-exports: a consumer reading a registration snapshot off a container it got from
+// `useContainer()` never imported `@remodulo/container` by hand.
 import type {
     AbstractConstructor,
+    AliasEntrySnapshot,
     AppProviderProps,
+    BindingEntrySnapshot,
     ClassProvider,
     Constructor,
     CreateModuleComponentOptions,
     CreateModuleComponentParams,
+    EntryMetadata,
+    EntrySnapshot,
     ExistingProvider,
     FactoryDependency,
     FactoryProvider,
     Feature,
+    Frame,
     InjectionToken,
     ModuleContextValue,
     ModuleHook,
@@ -87,6 +99,7 @@ import type {
     Provider,
     ProviderInput,
     ProviderLifecycle,
+    RequestCache,
     SelfClassProvider,
     TokenClassProvider,
     TokenOptions,
@@ -95,6 +108,22 @@ import type {
     UsePropsRefResult,
     ValueProvider,
 } from "@remodulo/react/types"
+
+// The kernel, reached directly. A consumer gets this package whether it asks for it or not, and the
+// typed errors live here — see the boundary section near the bottom for why they are not on the React
+// entry.
+import {
+    CYCLE_ERROR_CODE,
+    CycleError,
+    INJECTION_CONTEXT_ERROR_CODE,
+    InjectionContextError,
+    REGISTRATION_ERROR_CODE,
+    RESOLUTION_ERROR_CODE,
+    RegistrationError,
+    ResolutionError,
+} from "@remodulo/container"
+
+import type { Provider as KernelProvider } from "@remodulo/container/types"
 
 // Assertion helpers — zero dependency on purpose.
 // ========================================
@@ -106,6 +135,12 @@ type IsAny<T> = 0 extends 1 & T ? true : false
 type Not<T extends boolean> = T extends true ? false : true
 type Expect<T extends true> = T
 type HasKey<T, K extends PropertyKey> = K extends keyof T ? true : false
+
+// The two module namespaces, as types. `HasKey` over one of these is how an export's ABSENCE is pinned:
+// a missing name cannot be imported, and an import that fails is a compile error rather than an
+// assertion, so the negative space needs a shape to ask questions of.
+type ReactEntry = typeof import("@remodulo/react")
+type ContainerEntry = typeof import("@remodulo/container")
 
 // The gate is only worth something if the strict flags are really in effect — a tsconfig regression
 // that quietly relaxes them would otherwise leave everything below still green.
@@ -175,10 +210,14 @@ const abstractToken: InjectionToken<LoggerPort> = LoggerPort
 const abstractCtor: AbstractConstructor<LoggerPort> = LoggerPort
 void abstractToken
 
-// Services
+// Services — plain classes, dependencies read in field initializers.
 // ========================================
+//
+// This is the whole of 0.10.0's injection story from a consumer's side: no base class, no decorator, no
+// token on a parameter. `inject()` reads the container that is currently constructing, so the call site
+// IS the declaration — and because it is an ordinary function call, the type comes from the token
+// rather than from metadata a compiler flag has to emit.
 
-@Injectable()
 class ApiClient {
     async get<T>(path: string): Promise<T> {
         const response = await fetch(path)
@@ -194,21 +233,32 @@ class ConsoleLogger implements Logger {
     }
 }
 
+// A `PropsRef` subclass is a distinct class and therefore a distinct injection token, which is how a
+// service reaches ITS boundary's props with the right type. The base class binding is `PropsRef<any>`
+// (see the injection-functions probe below), so the subclass is not sugar — it is the typed path.
+class UserPropsRef extends PropsRef<UserProps> {}
+
 // A service that both participates in the module lifecycle and reads component props through the
-// auto-registered bridge. Every parameter carries its own token: nothing here depends on
-// `design:paramtypes`, so the same code compiles under a bundler that strips decorator metadata.
-@Injectable()
+// bridge the boundary registers for it.
 class UserStore implements ProviderLifecycle {
     private off: (() => void) | null = null
     private snapshot: UserProps | null = null
 
-    constructor(
-        @Inject(PropsRef) private readonly props: PropsRef<UserProps>,
-        @Inject(ApiClient) private readonly api: ApiClient,
-        @Inject(CONFIG) private readonly config: AppConfig
-    ) {}
+    private readonly props = inject(UserPropsRef)
+    private readonly api = inject(ApiClient)
+    private readonly config = inject(CONFIG)
+
+    // The optional read is a different function, not a flag on the same one: what `undefined` means is
+    // decided at the call site and shows up in the type.
+    private readonly logger = injectOptional(LOGGER)
 
     onModuleInit(): void {
+        const config = this.config
+        type _InjectedTokenType = Expect<Equals<typeof config, AppConfig>>
+
+        const logger = this.logger
+        type _InjectedOptionalType = Expect<Equals<typeof logger, Logger | undefined>>
+
         // The subscription can outlive a rebuilt-away service, so the `off` is kept and released below.
         this.off = this.props.onUpdate(
             (next, prev) => {
@@ -238,22 +288,22 @@ class UserStore implements ProviderLifecycle {
 
     async load(): Promise<Plugin[]> {
         const current = this.props.current
-        return this.api.get<Plugin[]>(
+        const api = this.api
+        type _InjectedClassType = Expect<Equals<typeof api, ApiClient>>
+
+        return api.get<Plugin[]>(
             `${this.config.baseUrl}/users/${current.userId}?limit=${current.limit ?? this.config.retries}`
         )
     }
 }
 
 // The system providers a consumer is allowed to inject. `Module` is the substrate: injecting it reaches
-// the module instance and its container directly, where injecting `ModuleMetadata` used to.
-@Injectable()
+// the module instance and its container directly.
 class Diagnostics {
-    constructor(
-        @Inject(Module) private readonly module: Module,
-        @Inject(ModuleRegistry) private readonly registry: ModuleRegistry,
-        @Inject(Resolver) private readonly resolver: Resolver,
-        @Inject(LOGGER) @Optional() private readonly logger: Logger | undefined
-    ) {}
+    private readonly module = inject(Module)
+    private readonly registry = inject(ModuleRegistry)
+    private readonly resolver = inject(Resolver)
+    private readonly logger = injectOptional(LOGGER)
 
     describe(): string {
         const id = this.module.id
@@ -262,23 +312,26 @@ class Diagnostics {
         const ownContainer = this.module.container
         type _ModuleContainer = Expect<Equals<typeof ownContainer, Container>>
 
-        // The parent is a Module now, not a bare Container — the tree is modules all the way up.
+        // The parent is a Module, not a bare Container — the tree is modules all the way up.
         const parent = this.module.parent
         type _ModuleParent = Expect<Equals<typeof parent, Module | null>>
 
         const children = this.module.children
         type _ModuleChildren = Expect<Equals<typeof children, ReadonlySet<Module>>>
 
-        // A declared snapshot, not the providers themselves — one entry per registration. `ProviderSnapshot`
-        // is deliberately NOT on the public surface, so the shape is pinned through the token it carries.
+        // A declared snapshot, not the providers themselves — one entry per registration.
+        // `ProviderSnapshot` is deliberately NOT on the public surface, so the shape is pinned through
+        // the token it carries.
         const declared = this.module.providers
         type _ModuleProvidersIsNotAny = Expect<Not<IsAny<typeof declared>>>
         const declaredToken = declared[0]?.token
-        type _ProviderSnapshotToken = Expect<Equals<typeof declaredToken, InjectionToken<unknown> | undefined>>
+        type _ProviderSnapshotToken = Expect<Equals<typeof declaredToken, InjectionToken | undefined>>
 
-        // `committed` is gone; the module exposes `initialized` / `mounted` instead.
         const initialized = this.module.initialized
         type _ModuleInitialized = Expect<Equals<typeof initialized, boolean>>
+
+        const claimed = this.module.claimed
+        type _ModuleClaimed = Expect<Equals<typeof claimed, boolean>>
 
         const mounted = this.module.mounted
         type _ModuleMounted = Expect<Equals<typeof mounted, boolean>>
@@ -291,6 +344,10 @@ class Diagnostics {
         const maybeLogger = this.resolver.resolveOptional(LOGGER, "self")
         type _ResolverResolveOptional = Expect<Equals<typeof maybeLogger, Logger | undefined>>
         type _ResolverResolveMode = Expect<Equals<Parameters<Resolver["resolveOptional"]>[1], ResolveMode | undefined>>
+
+        // The two-overload fallback read is on the mirror as well, thunk arm first.
+        const loggerOrLazy = this.resolver.resolveOr(LOGGER, () => null)
+        type _ResolverResolveOrLazy = Expect<Equals<typeof loggerOrLazy, Logger | null>>
 
         // `isRegistered` is the one read that does NOT take `ResolveMode`: it asks a registration question,
         // not a resolution one, so it takes `RegistrationMode`. The two unions are structurally identical
@@ -315,12 +372,14 @@ class Diagnostics {
             String(children.size),
             String(declared.length),
             String(initialized),
+            String(claimed),
             String(mounted),
             store.userId,
             maybeLogger ? "y" : "n",
             String(allPlugins.length),
             this.logger ? "y" : "n",
             String(declaredToken),
+            String(loggerOrLazy),
             this.walk(),
         ].join("/")
     }
@@ -369,84 +428,112 @@ class Diagnostics {
     }
 }
 
-// `LazyToken` breaks a construction cycle: a thunk, evaluated when the binding is resolved.
-@Injectable()
+// A collection read, in the same field-initializer position. The mode is the same one every other
+// collection read takes — one semantics parameterized uniformly, not a second option channel.
 class PluginRegistry {
-    constructor(
-        @InjectAll(PLUGIN) readonly plugins: Plugin[],
-        @Inject(LazyToken(() => ApiClient)) readonly api: ApiClient
-    ) {}
+    readonly plugins = injectAll(PLUGIN)
+    readonly chainedPlugins = injectAll(PLUGIN, "chained")
+    readonly ownPlugins = injectAll(PLUGIN, ResolveAllMode.Self)
+    readonly api = inject(ApiClient)
+
+    names(): string[] {
+        const plugins = this.plugins
+        type _InjectAllType = Expect<Equals<typeof plugins, Plugin[]>>
+        type _InjectAllIsNotAny = Expect<Not<IsAny<typeof plugins>>>
+        return [...plugins, ...this.chainedPlugins, ...this.ownPlugins].map((plugin) => plugin.name)
+    }
 }
 
-// The decorator surface is re-exported from the container library, so its declarations reach the
-// consumer through OUR `dist` — and a decorator that arrives as `any` accepts anything, silently. That
-// is not a compile error anywhere; it is only visible as an assertion. `skipLibCheck` (which every real
-// app sets) hides the underlying "cannot find module" completely, so this is the only place it shows.
-const lazyApiToken = LazyToken(() => ApiClient)
-type _LazyTokenIsNotAny = Expect<Not<IsAny<typeof lazyApiToken>>>
-type _InjectableIsNotAny = Expect<Not<IsAny<typeof Injectable>>>
-type _InjectIsNotAny = Expect<Not<IsAny<typeof Inject>>>
-type _InjectAllIsNotAny = Expect<Not<IsAny<typeof InjectAll>>>
-type _OptionalIsNotAny = Expect<Not<IsAny<typeof Optional>>>
-type _DecorateIsNotAny = Expect<Not<IsAny<typeof decorate>>>
-void lazyApiToken
+// The injection functions, pinned as functions.
+// ========================================
+//
+// `runInInjectionContext` is the one that makes them testable from outside a construction: it opens a
+// frame by hand, so the same four readers work in a plain function body.
 
-// The bundler path: no decorator syntax at all, the same metadata applied by hand. This is the shape
-// a consumer needs when the build strips decorators (esbuild, SWC without the legacy transform).
-class ManuallyDecorated {
-    constructor(readonly api: ApiClient) {}
+export function probeInjection(container: Container): string {
+    const probed = runInInjectionContext(container, () => {
+        const api = inject(ApiClient)
+        type _InjectByClass = Expect<Equals<typeof api, ApiClient>>
+        type _InjectByClassIsNotAny = Expect<Not<IsAny<typeof api>>>
+
+        const config = inject(CONFIG)
+        type _InjectByToken = Expect<Equals<typeof config, AppConfig>>
+
+        const ownConfig = inject(CONFIG, "self")
+        type _InjectMode = Expect<Equals<Parameters<typeof inject>[1], ResolveMode | undefined>>
+
+        const maybeLogger = injectOptional(LOGGER, ResolveMode.Nearest)
+        type _InjectOptional = Expect<Equals<typeof maybeLogger, Logger | undefined>>
+        type _InjectOptionalMode = Expect<Equals<Parameters<typeof injectOptional>[1], ResolveMode | undefined>>
+
+        const plugins = injectAll(PLUGIN)
+        type _InjectAll = Expect<Equals<typeof plugins, Plugin[]>>
+
+        // Unlike the parameter decorator it replaced, the function carries the WHOLE mode set: own-only
+        // injection is expressible now, because there is no planner between the call and the container.
+        const ownPlugins = injectAll(PLUGIN, "self")
+        type _InjectAllSelf = Expect<Equals<typeof ownPlugins, Plugin[]>>
+        type _InjectAllMode = Expect<Equals<Parameters<typeof injectAll>[1], ResolveAllMode | undefined>>
+
+        const own = injectContainer()
+        type _InjectContainer = Expect<Equals<typeof own, Container>>
+        type _InjectContainerTakesNothing = Expect<Equals<Parameters<typeof injectContainer>, []>>
+
+        // The base class is a token like any other, and it carries no props type: `inject(PropsRef)`
+        // reads `PropsRef<unknown>`, so `.current` is unknown and nothing about the boundary's props is
+        // knowable from it. A service that wants them TYPED reaches for a subclass token (`UserPropsRef`
+        // above) or a `Token<PropsRef<T>>` — this pin is the reason those exist.
+        const untypedProps = inject(PropsRef)
+        type _BasePropsRefIsUntyped = Expect<Equals<typeof untypedProps, PropsRef<unknown>>>
+        type _BasePropsRefCurrentIsUnknown = Expect<Equals<typeof untypedProps.current, unknown>>
+        type _BasePropsRefIsNotAny = Expect<Not<IsAny<typeof untypedProps.current>>>
+
+        return [api, config, ownConfig, maybeLogger, plugins, ownPlugins, own, untypedProps].length
+    })
+
+    // The return type is the callback's, not `unknown`.
+    type _RunInInjectionContextReturns = Expect<Equals<typeof probed, number>>
+
+    return String(probed)
 }
-decorate(Injectable(), ManuallyDecorated)
-decorate(Inject(ApiClient), ManuallyDecorated, 0)
 
-// `Injectable` takes nothing. Inversify's `injectable(scope?)` accepts a scope, but that channel is dead
-// here — `Container.register()` always sets the binding scope explicitly, and an explicit binding scope
-// beats the decorator's default — so an argument would be silently ignored rather than obeyed. Scope
-// belongs to the registration (`{ useClass: X, scope: Scope.Transient }`), so the arity is the API.
+// @ts-expect-error a single read has two modes; `chained` is a collection width.
+void inject(PLUGIN, "chained")
 
-// @ts-expect-error `Injectable` takes no arguments — scope lives on the provider, not on the class.
-void Injectable("Transient")
+// @ts-expect-error the same for the optional single read.
+void injectOptional(PLUGIN, ResolveAllMode.Chained)
 
-// @ts-expect-error and no other argument gets in either.
-void Injectable(Scope.Transient)
+// @ts-expect-error `runInInjectionContext` anchors at a container — the container is not optional.
+void runInInjectionContext(() => 1)
 
-// `InjectAll` sits on the other inversify option channel. `multiInject(token, { chained })` defaults to
-// UNCHAINED, which disagreed with `resolveAll` the moment a token was declared in both a module and an
-// ancestor. Ours takes the same MODES as every other multi read, with the same default and the same
-// meaning — one semantics parameterized uniformly, not a second option channel.
-const injectAllDefault = InjectAll(PLUGIN)
-const injectAllChained = InjectAll(PLUGIN, "chained")
-const injectAllNearest = InjectAll(PLUGIN, "nearest")
-const injectAllMember = InjectAll(PLUGIN, ResolveAllMode.Nearest)
-type _InjectAllReturns = Expect<Equals<typeof injectAllDefault, typeof injectAllNearest>>
-void [injectAllDefault, injectAllChained, injectAllNearest, injectAllMember]
+// The decorator surface is gone.
+// ========================================
+//
+// 0.10.0 removed it outright rather than deprecating it: ambient `inject()` needs no metadata, so the
+// decorators had nothing left to carry. A missing export cannot be imported at all, so the absence is
+// asked of the module namespace instead — and these six are what a 0.9 call site would reach for first.
 
-// The decorator's union is `ResolveAllMode` MINUS `"self"`, and the narrowing is load-bearing rather than
-// an oversight: injection resolves inside inversify's planner, which has chained and unchained
-// `multiInject` and nothing narrower, so own-only injection is not expressible at all. The type says so.
-type _InjectAllMode = Expect<Equals<Parameters<typeof InjectAll>[1], "nearest" | "chained" | undefined>>
+type _NoInjectable = Expect<Not<HasKey<ReactEntry, "Injectable">>>
+type _NoInject = Expect<Not<HasKey<ReactEntry, "Inject">>>
+type _NoInjectAllDecorator = Expect<Not<HasKey<ReactEntry, "InjectAll">>>
+type _NoOptional = Expect<Not<HasKey<ReactEntry, "Optional">>>
+type _NoDecorate = Expect<Not<HasKey<ReactEntry, "decorate">>>
+type _NoLazyToken = Expect<Not<HasKey<ReactEntry, "LazyToken">>>
 
-// @ts-expect-error the planner cannot do own-only injection, so `"self"` is not one of the decorator's modes.
-void InjectAll(PLUGIN, "self")
+// The kernel is not hiding them either — nothing re-exports a decorator from anywhere.
+type _KernelHasNoInjectable = Expect<Not<HasKey<ContainerEntry, "Injectable">>>
+type _KernelHasNoDecorate = Expect<Not<HasKey<ContainerEntry, "decorate">>>
+type _KernelHasNoLazyToken = Expect<Not<HasKey<ContainerEntry, "LazyToken">>>
 
-// @ts-expect-error and neither is the enum member that spells it.
-void InjectAll(PLUGIN, ResolveAllMode.Self)
-
-// The inversify options OBJECT stays rejected — a mode string is the only shape.
-// @ts-expect-error chained-ness is not a per-site options object.
-void InjectAll(PLUGIN, { chained: true })
-
-// @ts-expect-error not even the value that used to be the default.
-void InjectAll(PLUGIN, { chained: false })
+// A construction cycle is broken by moving the read out of the initializer instead of by a deferred
+// token: `inject()` inside a method body runs after both objects exist. There is no `LazyToken` because
+// there is no decorator whose argument had to be deferred.
 
 // Element holders — Ref / RefMap, and the subclass-as-token pattern.
 // ========================================
 //
 // Each subclass is its own class and therefore its own injection token, which is how "one element per
-// token" is spelled with no token ceremony. No `@Injectable()` on either: a zero-dependency class carries
-// no constructor metadata for inversify to want (MEASURED against 8.2.3 through the real
-// `register()` + `resolve()` path). The decorator only becomes necessary once a subclass takes constructor
-// parameters, exactly like any other class.
+// token" is spelled with no token ceremony.
 
 class InputRef extends Ref<HTMLInputElement> {}
 class FieldRefs extends RefMap<HTMLInputElement> {}
@@ -502,13 +589,10 @@ const refClassProvider: ClassProvider<InputRef> = { provide: InputRef, useClass:
 void refClassProvider
 
 // And the point of all of it: a service reaches the element through DI instead of through props. The
-// subclass is the token, so `@Inject(InputRef)` says which element without a symbol in sight.
-@Injectable()
+// subclass is the token, so the field initializer says which element without a symbol in sight.
 class FocusManager {
-    constructor(
-        @Inject(InputRef) private readonly input: InputRef,
-        @Inject(FieldRefs) private readonly fields: FieldRefs
-    ) {}
+    private readonly input = inject(InputRef)
+    private readonly fields = inject(FieldRefs)
 
     onModuleMount(): void {
         // Populated by now: refs attach in the commit, modules mount in a passive effect.
@@ -545,11 +629,12 @@ const lazyClassProvider: ClassProvider<PluginRegistry> = {
 // The same shape with `provide` left out: the class registers under itself, which is what the bare
 // constructor does — except the options are available here. `ClassProvider` names both spellings, so no
 // second type joined the surface to pay for the sugar.
-const shorthandClassProvider: ClassProvider<ManuallyDecorated> = { useClass: ManuallyDecorated }
+const shorthandClassProvider: ClassProvider<FocusManager> = { useClass: FocusManager }
+const namedShorthandProvider: SelfClassProvider<FocusManager> = { useClass: FocusManager }
+const namedTokenClassProvider: TokenClassProvider<UserStore> = { provide: UserStore, useClass: UserStore }
 const lazyShorthandProvider: ClassProvider<PluginRegistry> = { useClass: PluginRegistry, lazy: true }
 const transientShorthandProvider: ClassProvider<ApiClient> = { useClass: ApiClient, scope: Scope.Transient }
-void lazyShorthandProvider
-void transientShorthandProvider
+void [namedShorthandProvider, namedTokenClassProvider, lazyShorthandProvider, transientShorthandProvider]
 
 // And it is a `Provider` in its own right, options and all.
 const shorthandInUnion: Provider = { useClass: PluginRegistry, scope: "singleton", lazy: true }
@@ -562,8 +647,7 @@ const valueProvider: ValueProvider<AppConfig> = {
 }
 
 // 4. factory provider, with `inject` (a required and an optional dependency). The optional dependency is
-// the module instance itself — reached through the `Module` token, the way factories used to reach
-// `ModuleMetadata`.
+// the module instance itself — reached through the `Module` token.
 const optionalModule: OptionalFactoryDependency<Module> = { token: Module, optional: true }
 const factoryDependencies: FactoryDependency[] = [CONFIG, optionalModule, ApiClient]
 const factoryProvider: FactoryProvider<Logger> = {
@@ -574,14 +658,19 @@ const factoryProvider: FactoryProvider<Logger> = {
     scope: Scope.Singleton,
 }
 
+// A factory can also read the frame directly instead of declaring `inject`: the body runs inside the
+// construction that asked for it, so the ambient reader works there like it works in a field.
+const ambientFactoryProvider: FactoryProvider<Logger> = {
+    provide: FEATURE_LOGGER,
+    useFactory: () => new ConsoleLogger(`[${inject(CONFIG).baseUrl}] `),
+}
+
 // 5. existing provider (alias onto an already-registered token)
 const existingProvider: ExistingProvider<Logger> = { provide: FEATURE_LOGGER, useExisting: LOGGER }
 
-// The scope model is exactly three strings, and `Scope.*` is nothing but those strings. Note where the
-// type comes from: `Scope` is the one type a provider literal needs that `./types` does not re-export,
-// so a types-only consumer has to reach into the root entry for it.
-// 2 -> 3 with `request`, one instance per resolution graph. The surface counts below are untouched:
-// `Scope` was already exported under both meanings, and a third member is not a third name.
+// The scope model is exactly three strings, and `Scope.*` is nothing but those strings. Unlike 0.9,
+// `Scope` reaches a types-only consumer through `./types` as well — every kernel type a provider literal
+// needs is on the subpath now.
 type _ScopeUnion = Expect<Equals<Scope, "singleton" | "transient" | "request">>
 type _ScopeValues = Expect<
     Equals<
@@ -593,6 +682,8 @@ type _ScopeValues = Expect<
         }
     >
 >
+type _ScopeOnTypesSubpath = Expect<Equals<import("@remodulo/react/types").Scope, Scope>>
+
 const transientProvider: ClassProvider<ApiClient> = { provide: ApiClient, useClass: ApiClient, scope: Scope.Transient }
 const requestProvider: ClassProvider<ApiClient> = { provide: ApiClient, useClass: ApiClient, scope: Scope.Request }
 const requestLiteralProvider: ClassProvider<ApiClient> = { provide: ApiClient, useClass: ApiClient, scope: "request" }
@@ -684,8 +775,7 @@ const mistypedValueProvider: ValueProvider<AppConfig> = { provide: CONFIG, useVa
 void mistypedValueProvider
 
 // The class-only restriction, pinned. `provide` is optional for `useClass` because a class is its own
-// token; every other form has no token to derive, so dropping `provide` there must stay an error. These
-// four assertions are what stops optional-`provide` from leaking across the union.
+// token; every other form has no token to derive, so dropping `provide` there must stay an error.
 
 // @ts-expect-error a value has no derivable token — `provide` stays required.
 const provideLessValue: Provider = { useValue: { baseUrl: "x", retries: 0 } }
@@ -699,7 +789,7 @@ void provideLessFactory
 const provideLessExisting: Provider = { useExisting: LOGGER }
 void provideLessExisting
 
-// The same three under their own type names, where `provide` is plainly a required field.
+// The same under its own type name, where `provide` is plainly a required field.
 // @ts-expect-error ValueProvider requires `provide`.
 const provideLessValueProvider: ValueProvider<AppConfig> = { useValue: { baseUrl: "x", retries: 0 } }
 void provideLessValueProvider
@@ -868,26 +958,17 @@ void bareArrayFeature
 const numericNameFeature = createFeature({ name: 123, providers: [ApiClient] })
 void numericNameFeature
 
-// The container API is deliberately NOT widened: a feature is flattened by the module that receives it,
-// and `register()` never sees one.
-
-// @ts-expect-error a Feature is not a Provider — `register` takes providers alone.
-void new Container().register(ROOT_FEATURE)
-
-// @ts-expect-error and the array form refuses it for the same reason.
-void new Container().register([ApiClient, ROOT_FEATURE])
-
 const moduleProviders: Provider[] = [
     constructorProvider,
     classProvider,
     lazyClassProvider,
     valueProvider,
     factoryProvider,
+    ambientFactoryProvider,
     existingProvider,
     shorthandClassProvider,
     Diagnostics,
     UserStore,
-    ManuallyDecorated,
     FocusManager,
     ...refProviders,
 ]
@@ -952,11 +1033,8 @@ const BareModule = createModuleComponent()
 const FeaturedModule = createModuleComponent<UserProps>({ providers: [ROOT_FEATURE, ...moduleProviders] })
 type _FeaturedModuleProps = Expect<Equals<typeof FeaturedModule, ComponentType<UserProps & { children?: ReactNode }>>>
 
-// (f) a `PropsRef` subclass as the token. A subclass is a distinct class and therefore a distinct
-// injection token, which is how two SIBLING boundaries each own their own props binding with no token
-// ceremony — the same idiom `Ref` subclasses use for elements. The capability is old; `propsToken` is
-// what makes it findable at this position.
-class UserPropsRef extends PropsRef<UserProps> {}
+// (f) a `PropsRef` subclass as the token — the same idiom `Ref` subclasses use for elements, and the one
+// every service above depends on: `UserPropsRef` is what makes `inject(UserPropsRef)` typed.
 const SubclassTokenModule = createModuleComponent<UserProps>({}, { propsToken: UserPropsRef })
 type _SubclassTokenModuleProps = Expect<
     Equals<typeof SubclassTokenModule, ComponentType<UserProps & { children?: ReactNode }>>
@@ -1120,6 +1198,10 @@ export function useOwnContainer() {
     return useContainer()
 }
 
+export function useOwnModule() {
+    return useModule()
+}
+
 export const consumerToken = makeTokenizer("@consumer")
 
 export type ModuleContextShape = {
@@ -1203,8 +1285,7 @@ function UserView(): ReactElement {
     type _ResolveAllByClass = Expect<Equals<typeof registries, PluginRegistry[]>>
 
     // The modes reach the hook surface too — same names, same default, same semantics as every other
-    // multi read, and unlike the decorator the hook carries the whole set including `"self"`. None of
-    // them changes the resolved type.
+    // multi read. None of them changes the resolved type.
     const ownPlugins = useResolveAll(PLUGIN, "self")
     type _ResolveAllOwnOnly = Expect<Equals<typeof ownPlugins, Plugin[]>>
 
@@ -1213,11 +1294,16 @@ function UserView(): ReactElement {
     type _UseResolveAllMode = Expect<Equals<Parameters<typeof useResolveAll>[1], ResolveAllMode | undefined>>
     void nearestPlugins
 
-    // @ts-expect-error a mode is a string, not inversify's options object.
+    // @ts-expect-error a mode is a string, not an options object.
     void useResolveAll(PLUGIN, { chained: false })
 
     const container = useContainer()
     type _UseContainer = Expect<Equals<typeof container, Container>>
+
+    // The module instance, straight off context — the same value `inject(Module)` reaches from inside.
+    const ownModule = useModule()
+    type _UseModule = Expect<Equals<typeof ownModule, Module>>
+    type _UseModuleTakesNothing = Expect<Equals<Parameters<typeof useModule>, []>>
 
     const rebuild = useModuleRebuild()
     type _UseModuleRebuild = Expect<Equals<typeof rebuild, () => void>>
@@ -1225,10 +1311,7 @@ function UserView(): ReactElement {
     const moduleContext = useModuleContext()
     type _UseModuleContext = Expect<Equals<typeof moduleContext, ModuleContextValue>>
     type _ModuleContextShape = Expect<Equals<ModuleContextValue, { module: Module; rebuild: () => void }>>
-
-    // The module instance is the context value now — id lives on it, not beside it.
-    const ownModule = moduleContext.module
-    type _ContextModuleIsModule = Expect<Equals<typeof ownModule, Module>>
+    type _ContextModuleIsModule = Expect<Equals<typeof moduleContext.module, Module>>
 
     // @ts-expect-error resolution is typed by the token — `nope` does not exist on UserStore.
     void store.nope
@@ -1270,7 +1353,7 @@ function RebuildingModule({ children }: { children?: ReactNode }): ReactElement 
     )
 }
 
-// The boundary hook is internal now; a consumer reaches its enclosing module straight off context.
+// The boundary hook is internal; a consumer reaches its enclosing module straight off context.
 function ManualModule({ children }: { children?: ReactNode }): ReactElement {
     const { module, rebuild } = useModuleContext()
     type _ContextModule = Expect<Equals<typeof module, Module>>
@@ -1317,6 +1400,10 @@ export function AppTree(): ReactElement {
 
                 <FeaturedModule userId="u-4" />
 
+                <SubclassTokenModule userId="u-5" />
+
+                <SubclassVMModule userId="u-6" />
+
                 <BareModule>
                     <RebuildingModule>
                         <ManualModule />
@@ -1347,7 +1434,7 @@ void parentlessModule
 const wrongParentModule = new Module(new Container())
 void wrongParentModule
 
-// `App` / `new App(...)` take params only — the root has no parent slot; the subclass pins it to null.
+// `new App(...)` takes params only — the root has no parent slot; the subclass pins it to null.
 const explicitApp = new App({ id: "app-2" })
 type _NewAppIsApp = Expect<Equals<typeof explicitApp, App>>
 void explicitApp
@@ -1432,18 +1519,34 @@ void badFactoryAppProvider
 const emptyAppProvider = <AppProvider />
 void emptyAppProvider
 
-// Container — the same resolution semantics outside React.
+// Container — the kernel, reached through the React entry.
 // ========================================
+//
+// `Container` is `@remodulo/container`'s class, re-exported: the same class object, not a wrapper. A
+// consumer that never imports the kernel by name still gets its whole read surface off `useContainer()`.
+
+type _ContainerIsTheKernelClass = Expect<Equals<Container, import("@remodulo/container").Container>>
 
 export function inspect(container: Container): string {
     const child = container.fork()
     type _Fork = Expect<Equals<typeof child, Container>>
 
+    const parent = child.parent
+    type _ContainerParent = Expect<Equals<typeof parent, Container | null>>
+
+    // Constructed, never forked off a package-level singleton — and the parent is a constructor argument.
+    const constructed = new Container(container)
+    void constructed
+
     child.register([ApiClient, valueProvider])
-    child.register(factoryProvider)
+    child.register({ provide: LOGGER, useFactory: () => new ConsoleLogger("") })
 
     const api = child.resolve(ApiClient)
     type _Resolve = Expect<Equals<typeof api, ApiClient>>
+
+    // `construct` builds a class in the container's context without registering it or anything it reaches.
+    const detached = child.construct(ApiClient)
+    type _Construct = Expect<Equals<typeof detached, ApiClient>>
 
     const maybeConfig = child.resolveOptional(CONFIG, "self")
     type _ResolveOptional = Expect<Equals<typeof maybeConfig, AppConfig | undefined>>
@@ -1453,8 +1556,7 @@ export function inspect(container: Container): string {
     type _ResolveAll = Expect<Equals<typeof plugins, Plugin[]>>
 
     // The same modes the other multi reads have — `self` is this container's own bindings alone, `nearest`
-    // is the substrate's unchained walk with its ancestor fallback. Neither changes what a collection is
-    // made of.
+    // is the first contributing level, `chained` accumulates. Neither changes what a collection is made of.
     const ownPlugins = child.resolveAll(PLUGIN, "self")
     type _ResolveAllOwn = Expect<Equals<typeof ownPlugins, Plugin[]>>
     type _ContainerResolveAllMode = Expect<Equals<Parameters<Container["resolveAll"]>[1], ResolveAllMode | undefined>>
@@ -1485,25 +1587,43 @@ export function inspect(container: Container): string {
     // @ts-expect-error `ResolveAllMode.Chained` is that same string — the enum it came from does not matter.
     void child.isRegistered(CONFIG, ResolveAllMode.Chained)
 
-    child.onResolution(CONFIG, (instance) => {
+    // Registrations as data. The snapshot union is discriminated by `kind`, and both arms reach a
+    // consumer through `@remodulo/react/types` — reading a container you got from a hook must not send
+    // anyone to the kernel package for the type of what came back.
+    const registrations = child.registrations()
+    type _Registrations = Expect<Equals<typeof registrations, readonly EntrySnapshot[]>>
+
+    const entries = child.entries(PLUGIN)
+    type _Entries = Expect<Equals<typeof entries, readonly EntrySnapshot[]>>
+
+    const entry = child.entry(CONFIG)
+    type _Entry = Expect<Equals<typeof entry, EntrySnapshot | undefined>>
+
+    let described = ""
+    if (entry?.kind === "alias") {
+        const alias: AliasEntrySnapshot = entry
+        const target = alias.target
+        type _AliasTarget = Expect<Equals<typeof target, InjectionToken>>
+        described = String(target)
+    } else if (entry) {
+        const binding: BindingEntrySnapshot = entry
+        const scope = binding.scope
+        type _BindingScope = Expect<Equals<typeof scope, Scope>>
+        type _BindingKind = Expect<Equals<typeof binding.kind, "class" | "value" | "factory">>
+        described = scope
+    }
+
+    // Observation carries the producing entry's snapshot alongside the value, and the metadata bag is
+    // whatever the registration attached — the container never reads it.
+    child.onResolution(CONFIG, (instance, snapshot) => {
         type _OnResolutionInstance = Expect<Equals<typeof instance, AppConfig>>
-        void instance
+        type _OnResolutionSnapshot = Expect<Equals<typeof snapshot, BindingEntrySnapshot<AppConfig>>>
+
+        const metadata = snapshot.metadata
+        type _EntryMetadata = Expect<Equals<typeof metadata, EntryMetadata | undefined>>
+        type _EntryMetadataShape = Expect<Equals<EntryMetadata, Readonly<Record<string, unknown>>>>
+        void [instance, metadata]
     })
-
-    // One observation concept reaches consumers. The predicate-filtered variant the module lifecycle adopts
-    // through (`onPredicateResolution`) is `@internal` and removed from the published declarations by
-    // `stripInternal` in tsconfig.build.json. `onSingletonResolution` was its earlier, narrower name and is
-    // gone outright — neither may appear.
-    //
-    // THIS PIN IS LOAD-BEARING: it is the only thing holding that flag in place. Drop `stripInternal` and
-    // the member reappears in `dist`, the assertion below stops being true, and `typecheck:consumers` goes
-    // red — which is exactly the point. Do not "fix" a failure here by deleting the pin.
-    type _PublicObservationExists = Expect<HasKey<Container, "onResolution">>
-    type _InternalObservationIsHidden = Expect<Not<HasKey<Container, "onPredicateResolution">>>
-    type _RenamedObservationIsGone = Expect<Not<HasKey<Container, "onSingletonResolution">>>
-
-    // @ts-expect-error `onPredicateResolution` is internal — it is not on the published Container.
-    child.onPredicateResolution(CONFIG, () => undefined, () => true)
 
     const fallbackConfig: AppConfig = { baseUrl: "", retries: 0 }
     const configOrValue = child.resolveOr(CONFIG, fallbackConfig)
@@ -1518,21 +1638,109 @@ export function inspect(container: Container): string {
 
     return [
         String(api),
+        String(detached),
         String(maybeConfig?.retries ?? 0),
         String(plugins.length),
         String(registered),
+        String(registrations.length),
+        String(entries.length),
+        described,
         configOrValue.baseUrl,
         String(configOrLazy),
     ].join("|")
 }
 
-// A container is constructed, never forked off a package-level singleton.
-
 // @ts-expect-error there is no global container and no `createChildContainer` on the class.
 void Container.createChildContainer()
 
-// @ts-expect-error `LazyToken` is a function that builds a deferred identifier, not a class.
-void new LazyToken(() => ApiClient)
+// The container API is deliberately NOT widened for features: a feature is flattened by the module that
+// receives it, and `register()` never sees one.
+
+// @ts-expect-error a Feature is not a Provider — `register` takes providers alone.
+void new Container().register(ROOT_FEATURE)
+
+// @ts-expect-error and the array form refuses it for the same reason.
+void new Container().register([ApiClient, ROOT_FEATURE])
+
+// The two provider vocabularies are NOT the same type, and that is the boundary between the packages:
+// `lazy` and `inject` are the React layer's, translated into kernel registrations before the container
+// ever sees them. A consumer that annotates with the wrong one gets away with it until it does not.
+type _ReactProviderIsNotKernelProvider = Expect<Not<Equals<Provider, KernelProvider>>>
+
+// The frame, as a type. Nothing hands one to a consumer — `inject()` reads it — but it is on the
+// published surface because a consumer writing its own reader has to be able to name the thing.
+declare const frame: Frame
+type _FrameContainer = Expect<Equals<typeof frame.container, Container>>
+type _FrameRequest = Expect<Equals<typeof frame.request, RequestCache>>
+type _FrameChain = Expect<Equals<typeof frame.chain, readonly InjectionToken[]>>
+type _RequestCache = Expect<Equals<RequestCache, Map<object, unknown>>>
+
+// The package boundary — where the errors live.
+// ========================================
+//
+// The typed errors are the KERNEL's, and the React entry does not re-export them: a `catch` block that
+// wants to branch on `error.code` imports `@remodulo/container` directly. That is not an oversight to be
+// papered over by a convenience re-export — the errors are thrown by container operations, they mean the
+// same thing with or without React, and one owner per name is what keeps `instanceof` honest across the
+// two packages. Both halves are pinned: absent there, present here.
+
+type _NoRegistrationErrorOnReact = Expect<Not<HasKey<ReactEntry, "RegistrationError">>>
+type _NoResolutionErrorOnReact = Expect<Not<HasKey<ReactEntry, "ResolutionError">>>
+type _NoCycleErrorOnReact = Expect<Not<HasKey<ReactEntry, "CycleError">>>
+type _NoInjectionContextErrorOnReact = Expect<Not<HasKey<ReactEntry, "InjectionContextError">>>
+type _NoErrorCodesOnReact = Expect<Not<HasKey<ReactEntry, "REGISTRATION_ERROR_CODE">>>
+
+type _RegistrationErrorOnKernel = Expect<HasKey<ContainerEntry, "RegistrationError">>
+type _ResolutionErrorOnKernel = Expect<HasKey<ContainerEntry, "ResolutionError">>
+type _CycleErrorOnKernel = Expect<HasKey<ContainerEntry, "CycleError">>
+type _InjectionContextErrorOnKernel = Expect<HasKey<ContainerEntry, "InjectionContextError">>
+
+export function describeFailure(error: unknown): string {
+    if (error instanceof CycleError) {
+        // The cycle as data: the chain from the repeat that closes it, ending at that same token.
+        const chain = error.chain
+        type _CycleChain = Expect<Equals<typeof chain, readonly InjectionToken[]>>
+        type _CycleCode = Expect<Equals<typeof error.code, typeof CYCLE_ERROR_CODE>>
+        return `${error.code}:${chain.length}`
+    }
+
+    if (error instanceof ResolutionError) {
+        const token = error.token
+        type _ResolutionToken = Expect<Equals<typeof token, InjectionToken>>
+
+        // The width of the read that failed, undefined where the read takes none.
+        const mode = error.mode
+        type _ResolutionMode = Expect<Equals<typeof mode, ResolveMode | ResolveAllMode | undefined>>
+        type _ResolutionCode = Expect<
+            Equals<typeof error.code, typeof RESOLUTION_ERROR_CODE | typeof CYCLE_ERROR_CODE>
+        >
+        return `${error.code}:${String(token)}:${mode ?? "-"}`
+    }
+
+    if (error instanceof RegistrationError) {
+        // Undefined when the failing provider names no token at all.
+        const token = error.token
+        type _RegistrationToken = Expect<Equals<typeof token, InjectionToken | undefined>>
+        type _RegistrationCode = Expect<Equals<typeof error.code, typeof REGISTRATION_ERROR_CODE>>
+        return `${error.code}:${String(token)}`
+    }
+
+    if (error instanceof InjectionContextError) {
+        // Which reader was called outside a frame.
+        const caller = error.caller
+        type _InjectionContextCaller = Expect<Equals<typeof caller, string>>
+        type _InjectionContextCode = Expect<Equals<typeof error.code, typeof INJECTION_CONTEXT_ERROR_CODE>>
+        return `${error.code}:${caller}`
+    }
+
+    return "unknown"
+}
+
+// The codes are string literals, not `string`: branching on them narrows.
+type _RegistrationCodeLiteral = Expect<Equals<typeof REGISTRATION_ERROR_CODE, "REMODULO/REGISTRATION">>
+type _ResolutionCodeLiteral = Expect<Equals<typeof RESOLUTION_ERROR_CODE, "REMODULO/RESOLUTION">>
+type _CycleCodeLiteral = Expect<Equals<typeof CYCLE_ERROR_CODE, "REMODULO/CYCLE">>
+type _InjectionContextCodeLiteral = Expect<Equals<typeof INJECTION_CONTEXT_ERROR_CODE, "REMODULO/INJECTION_CONTEXT">>
 
 // The published surface, counted.
 // ========================================
@@ -1547,12 +1755,11 @@ const publicValueSurface = [
     ResolveMode,
     ResolveAllMode,
     RegistrationMode,
-    Inject,
-    InjectAll,
-    Injectable,
-    LazyToken,
-    Optional,
-    decorate,
+    inject,
+    injectAll,
+    injectContainer,
+    injectOptional,
+    runInInjectionContext,
     App,
     Module,
     AppProvider,
@@ -1560,6 +1767,7 @@ const publicValueSurface = [
     createFeature,
     createModuleComponent,
     useContainer,
+    useModule,
     useModuleContext,
     useModuleRebuild,
     useResolve,
@@ -1574,39 +1782,40 @@ const publicValueSurface = [
     Token,
     makeTokenizer,
 ] as const
-// 24 -> 25 on the 0.5.0 rework: `ModuleMetadata` and public `useModule` left with the modes; `App`,
-// `Module` and `AppProvider` arrived with the App/Module classes. 25 -> 27 with the element holders,
-// `Ref` and `RefMap`. Both are classes, so each is a value and a type under one name — the type surface
-// below is unchanged by them, exactly as it is by `PropsRef`. 27 -> 29 when the `recursive` / `chained`
-// booleans became `ResolveMode` and `ResolveAllMode`: an `Enum` is a value and a type under one name like
-// `Scope`, but unlike `Scope` a consumer annotates with these directly, so they are counted in both lists.
-// 29 -> 30 when `isRegistered` moved off `ResolveMode` onto its own `RegistrationMode`: same members as
-// `ResolveMode` today, separate enum because it is a registration-axis question rather than a resolution
-// one, and a third `Enum` on the same idiom is a third name in both lists. Still 30 after
-// `useResolveSafe` -> `useResolveOptional`: a rename replaces a name in this list rather than adding one,
-// so the count holding is the evidence that nothing else moved with it. 30 -> 31 with `createFeature`: the
-// only value provider bundles add, since a `Feature` is made by that call and never by a constructor.
+// 31 -> 31 across the 0.10.0 kernel rework, which is a coincidence worth stating rather than evidence
+// that nothing moved: SIX decorator exports left (`Inject`, `InjectAll`, `Injectable`, `Optional`,
+// `decorate`, `LazyToken`) and six arrived — the five ambient readers (`inject`, `injectOptional`,
+// `injectAll`, `injectContainer`, `runInInjectionContext`) plus `useModule`, which was internal until a
+// consumer had a reason to hold the module instance rather than the whole context value. The count is
+// the same number for a completely different surface, so the LIST is what carries the meaning here.
 type _PublicValueSurfaceSize = Expect<Equals<typeof publicValueSurface.length, 31>>
 
 // The `./types` subpath must carry the entire public type surface. Every exported name is referenced
 // once.
 type PublicTypeSurface = [
     AbstractConstructor<Logger>,
+    AliasEntrySnapshot,
+    BindingEntrySnapshot<AppConfig>,
     ClassProvider<UserStore>,
     Constructor<ApiClient>,
+    EntryMetadata,
+    EntrySnapshot,
     ExistingProvider<Logger>,
     FactoryDependency,
     FactoryProvider<Logger>,
     Feature,
+    Frame,
     InjectionToken<AppConfig>,
     MultiFactoryDependency<Plugin>,
     OptionalFactoryDependency<AppConfig>,
     Provider,
     ProviderInput,
+    RequestCache,
     ResolveMode,
     ResolveAllMode,
     RegistrationMode,
-    SelfClassProvider<ManuallyDecorated>,
+    Scope,
+    SelfClassProvider<FocusManager>,
     TokenClassProvider<UserStore>,
     ValueProvider<AppConfig>,
     ModuleParams,
@@ -1624,32 +1833,17 @@ type PublicTypeSurface = [
     TokenOptions,
     Tokenizer,
 ]
-// 31 -> 26 on the 0.5.0 rework: `FactoryModuleParams`, `ModuleResolution`, `ModuleResolutionParams`,
-// `RootModuleParams` and `ScopedModuleParams` left with the modes, and `ModuleMetadataInit` /
-// `ModuleMetadataProvider` with the ModuleMetadata concept; `ModuleParams` and `AppProviderProps`
-// arrived with the App/Module classes. 26 -> 24 when `onModuleError` was removed, taking
-// `ModuleErrorHook` and `ModulePhase` with it. Unchanged by the provide-less `useClass` shorthand: it is
-// a second member of `ClassProvider`, not a new name. 24 -> 26 with multi-providers, which turned that
-// second member into a second TYPE: `multi: true` requires a `provide` and the shorthand has none, so
-// `ClassProvider` is now a union — and a union alias is only portable when a consumer can NAME its
-// members. Without these two exports, `export const x = { someClassProvider }` fails to emit its
-// declarations with TS2742. 26 -> 28 with the read modes: `ResolveMode` and `ResolveAllMode` are exported
-// from `./types` as well as from the root, because a consumer that stores or forwards a mode
-// (`function read(mode: ResolveAllMode)`) needs to NAME it, and a types-only consumer has no root import
-// to reach for. Pinned here through the root binding, which carries both meanings of each name. 28 -> 29
-// with `RegistrationMode`, `isRegistered`'s own mode, for exactly the same reason. 29 -> 30 when a factory
-// dependency gained a collection arm: `MultiFactoryDependency` is the same union-member argument as the two
-// `ClassProvider` members — `FactoryDependency` is a union, and a consumer storing or forwarding one arm of
-// it has to be able to NAME that arm. The value surface is untouched; all three are types only. Still 30
-// when `multi: false` became a legal provider spelling: the token-bearing forms widened to `multi?:
-// boolean` and the shorthand to `multi?: false`, both inside shapes this list already names. 30 -> 32 with
-// provider bundles: `Feature` is what `createFeature` returns and `ProviderInput` is the `Provider | Feature`
-// union every params surface now takes, so a consumer that stores or forwards either has to be able to NAME
-// it — and `ModuleParams`, already in this list, is unusable without the second.
-type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 32>>
+// 32 -> 39 on the 0.10.0 kernel rework, and all seven arrivals are kernel types the React package
+// re-exports rather than anything React grew. Six are the registration/observation vocabulary a
+// consumer meets the moment it reads a container it got from `useContainer()`: `EntrySnapshot` and its
+// two arms `BindingEntrySnapshot` / `AliasEntrySnapshot`, the `EntryMetadata` bag they carry, and
+// `Frame` / `RequestCache`, which name what an ambient read is reading. The seventh is `Scope`, which
+// was on the root entry alone in 0.9 — a types-only consumer annotating a provider literal had to reach
+// into `.` for it, which is exactly the reach this subpath exists to remove.
+type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 39>>
 
-// The three modes are the only names in that list a consumer imports from the ROOT as values, so the claim
-// that `./types` also carries them cannot ride on the import block above. Pinned directly instead.
+// The four `Enum` names in that list are the only ones a consumer imports from the ROOT as values, so the
+// claim that `./types` also carries them cannot ride on the import block above. Pinned directly instead.
 type _ResolveModeOnTypesSubpath = Expect<Equals<import("@remodulo/react/types").ResolveMode, ResolveMode>>
 type _ResolveAllModeOnTypesSubpath = Expect<
     Equals<import("@remodulo/react/types").ResolveAllMode, ResolveAllMode>

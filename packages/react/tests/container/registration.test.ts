@@ -1,25 +1,20 @@
 import { describe, expect, it } from "vitest"
 
-import { Container, Injectable, Scope, decorate } from "../../src/container/index.js"
-import type { Constructor, Provider } from "../../src/container/index.js"
-
+import { Container, Scope } from "@remodulo/container"
+import type { Constructor } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 // One token, one registration per container.
 // ========================================
 //
 // A duplicate is a mistake, never an override: `register` throws for every provider shape. The same token
 // in a parent and in a `fork()` is a different matter — that is shadowing, and it is legal.
 
-function injectableClass<T extends Constructor>(target: T): T {
-    decorate(Injectable(), target)
-    return target
-}
 
 const ALREADY_REGISTERED = /is already registered on this container\. One token, one registration/
 
 describe("duplicate registration", () => {
     it("throws for the bare constructor shorthand", () => {
         class Service {}
-        injectableClass(Service)
 
         const container = new Container()
         container.register(Service)
@@ -30,7 +25,6 @@ describe("duplicate registration", () => {
 
     it("throws for useClass", () => {
         class Service {}
-        injectableClass(Service)
         const TOKEN = Symbol("dup-class")
 
         const container = new Container()
@@ -73,7 +67,6 @@ describe("duplicate registration", () => {
 
     it("throws for the provide-less useClass shorthand after the bare constructor", () => {
         class Service {}
-        injectableClass(Service)
 
         const container = new Container()
         container.register(Service)
@@ -84,7 +77,6 @@ describe("duplicate registration", () => {
 
     it("throws for the provide-less useClass shorthand after the equivalent provide + useClass", () => {
         class Service {}
-        injectableClass(Service)
 
         const container = new Container()
         container.register({ provide: Service, useClass: Service })
@@ -94,7 +86,6 @@ describe("duplicate registration", () => {
 
     it("throws for anything registering the class again after the provide-less useClass shorthand", () => {
         class Service {}
-        injectableClass(Service)
 
         const shapes: Provider[] = [
             Service,
@@ -114,7 +105,6 @@ describe("duplicate registration", () => {
 
     it("throws across differing shapes for the same token", () => {
         class Service {}
-        injectableClass(Service)
         const TOKEN = Symbol("dup-mixed")
         const OTHER = Symbol("other")
 
@@ -186,7 +176,6 @@ describe("shadowing across a fork", () => {
         class Service {
             constructor(readonly origin = "class") {}
         }
-        injectableClass(Service)
         const TOKEN = Symbol("shadow-shape")
 
         const parent = new Container()
@@ -231,7 +220,6 @@ describe("shadowing across a fork", () => {
                 built.push("built")
             }
         }
-        injectableClass(Service)
 
         const parent = new Container()
         parent.register(Service)

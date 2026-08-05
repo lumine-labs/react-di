@@ -2,8 +2,7 @@ import { act, render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { Activity, StrictMode, useState, type ReactNode } from "react"
 
-import { decorate, Injectable } from "../../src/container/index.js"
-import type { Provider } from "../../src/container/index.js"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { App, type Module } from "../../src/core/module/module.js"
 import { AppProvider } from "../../src/react/providers/AppProvider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
@@ -87,7 +86,6 @@ function genTracker(log: string[] = [], label = "S"): Tracker {
         }
     }
 
-    decorate(Injectable(), Service)
     return { provider: Service as unknown as Provider, generations }
 }
 

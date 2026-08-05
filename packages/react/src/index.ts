@@ -1,9 +1,12 @@
 // Container
 // ========================================
 
-export { Container } from "./container/container.js"
-export { RegistrationMode, ResolveAllMode, ResolveMode, Scope } from "./container/container.types.js"
-export { Inject, InjectAll, Injectable, LazyToken, Optional, decorate } from "./container/decorators.js"
+export { Container, RegistrationMode, ResolveAllMode, ResolveMode, Scope } from "@remodulo/container"
+
+// Injection
+// ========================================
+
+export { inject, injectAll, injectContainer, injectOptional, runInInjectionContext } from "@remodulo/container"
 
 // Modules
 // ========================================

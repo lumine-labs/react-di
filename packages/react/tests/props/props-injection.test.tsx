@@ -6,28 +6,28 @@ import { useState } from "react"
 import { createModuleComponent } from "../../src/react/factories/createModuleComponent.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { PropsRef, type PropsAdapter } from "../../src/core/providers/props-ref/props-ref.provider.js"
-import { Inject, Injectable, Optional, decorate } from "../../src/container/decorators.js"
 import { useResolve } from "../../src/react/hooks/useResolve.js"
-import type { InjectionToken, Provider } from "../../src/container/index.js"
+import { inject, injectOptional } from "@remodulo/container"
+import type { InjectionToken } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { Root } from "../setup/react.js"
 
-// The documented consumer shape: a service takes the bridge through its constructor. vitest transforms
-// with esbuild and emits no `design:paramtypes`, so the decorators go on through `decorate()` and each
-// constructor parameter needs its own explicit `Inject(TOKEN)`.
+// The documented consumer shape: a service reaches the bridge from its own construction frame. No
+// decorators and no `design:paramtypes` — a service is a plain class and every dependency it needs it
+// reads with `inject(TOKEN)` as a field initializer.
 
 type UserProps = { userId: string; name: string }
 
 function injectingService(token: InjectionToken<unknown> = PropsRef) {
     const Service = class {
         readonly seen: unknown[] = []
+        // The helper is generic over the token, so the value's type is the caller's claim, not the token's.
+        readonly props = inject(token) as PropsRef<UserProps>
 
-        constructor(readonly props: PropsRef<UserProps>) {
-            props.onUpdate((next) => void this.seen.push(next))
+        constructor() {
+            this.props.onUpdate((next) => void this.seen.push(next))
         }
     }
-
-    decorate(Injectable(), Service)
-    decorate(Inject(token), Service, 0)
 
     return Service
 }
@@ -133,11 +133,8 @@ describe("PropsRef through constructor injection", () => {
 
     it("is undefined, not an error, when the module has no bridge and the dependency is optional", () => {
         const Service = class {
-            constructor(readonly props: PropsRef<UserProps> | undefined) {}
+            readonly props = injectOptional<PropsRef<UserProps>>(PropsRef)
         }
-        decorate(Injectable(), Service)
-        decorate(Inject(PropsRef), Service, 0)
-        decorate(Optional(), Service, 0)
 
         let resolved: InstanceType<typeof Service> | null = null
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { Container } from "../../src/container/index.js"
+import { Container } from "@remodulo/container"
 import { App, Module } from "../../src/core/module/module.js"
 import { ModuleLifecycle } from "../../src/core/providers/module-lifecycle/module-lifecycle.provider.js"
 import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"

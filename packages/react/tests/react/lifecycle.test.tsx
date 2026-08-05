@@ -2,8 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { render } from "@testing-library/react"
 import type { ReactNode } from "react"
 
-import { decorate, Injectable } from "../../src/container/index.js"
-import type { Provider } from "../../src/container/index.js"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useResolve } from "../../src/react/hooks/useResolve.js"
 import { useModuleContext } from "../../src/react/hooks/useModuleContext.js"
@@ -50,7 +49,6 @@ describe("lifecycle through React", () => {
                     log.push(`${label}:destroy`)
                 }
             }
-            decorate(Injectable(), K)
             return K as unknown as Provider
         }
 
@@ -180,7 +178,6 @@ describe("lifecycle through React", () => {
                 throw new Error("destroy boom")
             }
         }
-        decorate(Injectable(), Bad)
 
         const { unmount } = render(
             <Root>

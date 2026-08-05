@@ -3,23 +3,35 @@
 
 export type {
     AbstractConstructor,
-    ClassProvider,
+    AliasEntrySnapshot,
+    BindingEntrySnapshot,
     Constructor,
-    ExistingProvider,
-    FactoryDependency,
-    FactoryProvider,
+    EntryMetadata,
+    EntrySnapshot,
+    Frame,
     InjectionToken,
-    MultiFactoryDependency,
-    OptionalFactoryDependency,
-    Provider,
     RegistrationMode,
+    RequestCache,
     ResolveAllMode,
     ResolveMode,
     Scope,
+} from "@remodulo/container/types"
+
+// Providers
+// ========================================
+
+export type {
+    ClassProvider,
+    ExistingProvider,
+    FactoryDependency,
+    FactoryProvider,
+    MultiFactoryDependency,
+    OptionalFactoryDependency,
+    Provider,
     SelfClassProvider,
     TokenClassProvider,
     ValueProvider,
-} from "./container/container.types.js"
+} from "./core/provider/provider.types.js"
 
 // Module
 // ========================================
@@ -51,7 +63,10 @@ export type { PropsAdapter } from "./core/providers/props-ref/props-ref.provider
 export type { ModuleContextValue } from "./react/context/ModuleContext.js"
 export type { ModuleProviderProps } from "./react/providers/ModuleProvider.js"
 export type { AppProviderProps } from "./react/providers/AppProvider.js"
-export type { CreateModuleComponentOptions, CreateModuleComponentParams } from "./react/factories/createModuleComponent.js"
+export type {
+    CreateModuleComponentOptions,
+    CreateModuleComponentParams,
+} from "./react/factories/createModuleComponent.js"
 export type { UsePropsRefOptions, UsePropsRefResult } from "./react/hooks/usePropsRef.js"
 
 // Tokens

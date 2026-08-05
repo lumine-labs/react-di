@@ -1,7 +1,7 @@
 import { useContext, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from "react"
 import { useEvent, useIsomorphicLayoutEffect, useScheduleLayoutEffect } from "@luminelabs/react-toolkit"
 
-import type { Container } from "../../container/index.js"
+import type { Container } from "@remodulo/container"
 import { Module, type ModuleParams } from "../../core/module/module.js"
 import type { ModuleHooks } from "../../core/providers/module-lifecycle/module-lifecycle.types.js"
 import { ModuleContext } from "../context/ModuleContext.js"

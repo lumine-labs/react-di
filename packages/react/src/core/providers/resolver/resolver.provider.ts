@@ -4,7 +4,7 @@ import type {
     RegistrationMode,
     ResolveAllMode,
     ResolveMode,
-} from "../../../container/index.js"
+} from "@remodulo/container"
 
 /** Mirrors `Container`'s read surface exactly — same names, same mode parameters, same defaults. */
 export class Resolver {
@@ -28,7 +28,7 @@ export class Resolver {
         return this.container.resolveAll(token, mode)
     }
 
-    isRegistered(token: InjectionToken<unknown>, mode: RegistrationMode = "nearest"): boolean {
+    isRegistered(token: InjectionToken, mode: RegistrationMode = "nearest"): boolean {
         return this.container.isRegistered(token, mode)
     }
 }

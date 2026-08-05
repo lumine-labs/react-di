@@ -1,4 +1,4 @@
-import type { InjectionToken } from "../../container/index.js"
+import type { InjectionToken } from "@remodulo/container/types"
 
 const DEFAULT_TOKEN_NAMESPACE = "@remodulo/react"
 

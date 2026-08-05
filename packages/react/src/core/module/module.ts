@@ -1,6 +1,8 @@
-import { Container, type InjectionToken, type Provider, type Scope } from "../../container/index.js"
+import { Container, type InjectionToken, type Scope } from "@remodulo/container"
 
 import { flattenProviders, type ProviderInput } from "../feature/feature.js"
+import { registerProviders } from "../provider/provider.js"
+import type { Provider } from "../provider/provider.types.js"
 import type { ModuleHook, ModuleHooks } from "../providers/module-lifecycle/module-lifecycle.types.js"
 import { ModuleLifecycle } from "../providers/module-lifecycle/module-lifecycle.provider.js"
 import { ModuleRegistry } from "../providers/module-registry/module-registry.provider.js"
@@ -22,10 +24,10 @@ export type ModuleParams = {
 
 /** Declared shape of a registered provider — what lifecycle collection reads, not the provider itself. */
 export type ProviderSnapshot = {
-    token: InjectionToken<unknown>
+    token: InjectionToken
     scope?: Scope // absent = singleton
     lazy?: true
-    aliasOf?: InjectionToken<unknown> // useExisting target
+    aliasOf?: InjectionToken // useExisting target
     multi?: true // one of several contributions to a collection; the token repeats
 }
 
@@ -65,10 +67,11 @@ export class Module {
             { provide: ModuleLifecycle, useValue: this.#lifecycle },
         ]
         const user = flattenProviders(params?.providers ?? [])
+        const all = [...system, ...user]
 
-        this.container.register(system)
-        this.container.register(user)
-        this.#setProviders([...system, ...user])
+        // One pass, so a collection's `lazy` verdict is settled across system and user providers together.
+        registerProviders(this.container, all)
+        this.#setProviders(all)
 
         const { onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy } = params ?? {}
         this.#hooks = { onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy }

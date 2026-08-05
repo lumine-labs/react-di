@@ -2,8 +2,8 @@ import { act, render } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import { useState, type ReactNode } from "react"
 
-import { InjectAll, Injectable, decorate } from "../../src/container/index.js"
-import type { Provider } from "../../src/container/index.js"
+import { injectAll } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { Resolver } from "../../src/core/providers/resolver/resolver.provider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useContainer, useModuleRebuild } from "../../src/react/hooks/useModuleContext.js"
@@ -19,7 +19,7 @@ import type { Tracked } from "../setup/helpers.js"
 // This is what multi-providers are for: an app-level token every module along the chain may contribute to,
 // read back as one collection at the deepest point. Three nested `<ModuleProvider>`s each register a
 // `{ provide: PLUGINS, useClass: ..., multi: true }`, and the leaf reads the whole set two ways — through
-// `@InjectAll` in a service and through `useResolveAll` in a component. The two paths must agree, the order
+// `injectAll()` in a service and through `useResolveAll` in a component. The two paths must agree, the order
 // must be nearest-first, and every instance must be adopted by the module that DECLARED it, not by the one
 // that read it.
 
@@ -28,18 +28,19 @@ const PLUGINS = Symbol.for("tests.multi.plugins")
 const contribute = (service: Provider): Provider =>
     ({ provide: PLUGINS, useClass: service, multi: true }) as Provider
 
-/** A service that takes the whole collection through the constructor. */
+/** A service that reads the whole collection at construction. */
 function collector(mode?: "nearest" | "chained"): Provider & { seen: string[][] } {
     const seen: string[][] = []
 
     const Collector = class {
         static seen = seen
-        constructor(readonly plugins: { label: string }[]) {
-            seen.push(plugins.map((plugin) => plugin.label))
+        readonly plugins: { label: string }[] =
+            mode === undefined ? injectAll(PLUGINS) : injectAll(PLUGINS, mode)
+
+        constructor() {
+            seen.push(this.plugins.map((plugin) => plugin.label))
         }
     }
-    decorate(Injectable(), Collector)
-    decorate((mode === undefined ? InjectAll(PLUGINS) : InjectAll(PLUGINS, mode)) as ParameterDecorator, Collector, 0)
 
     return Collector as unknown as Provider & { seen: string[][] }
 }
@@ -52,7 +53,7 @@ function plugin(log: string[], label: string): Tracked {
 }
 
 describe("the plugin pattern", () => {
-    it("collects nearest-first across three modules, identically through @InjectAll and useResolveAll", () => {
+    it("collects nearest-first across three modules, identically through injectAll and useResolveAll", () => {
         const log: string[] = []
         const root = plugin(log, "R")
         const mid = plugin(log, "M")
@@ -83,7 +84,7 @@ describe("the plugin pattern", () => {
         expect(fromService[0]?.plugins).toEqual(fromHook)
     })
 
-    it("agrees mode for mode across container, resolver, hook and decorator", () => {
+    it("agrees mode for mode across container, resolver, hook and injectAll", () => {
         // The probe sits in a module that contributes NOTHING, which is the only place the three modes
         // give three different answers: chained accumulates, nearest falls back to the leaf's own
         // collection alone, self is empty. Every surface that has a mode must land on the same one.
@@ -111,10 +112,10 @@ describe("the plugin pattern", () => {
                 resolverChained: labels(resolver.resolveAll(PLUGINS, "chained")),
                 resolverNearest: labels(resolver.resolveAll(PLUGINS, "nearest")),
                 resolverSelf: labels(resolver.resolveAll(PLUGINS, "self")),
-                decoratorChained: labels(
+                injectAllChained: labels(
                     useResolve<{ plugins: { label: string }[] }>(ChainedCollector as never).plugins
                 ),
-                decoratorNearest: labels(
+                injectAllNearest: labels(
                     useResolve<{ plugins: { label: string }[] }>(NearestCollector as never).plugins
                 ),
             }
@@ -137,11 +138,11 @@ describe("the plugin pattern", () => {
             hookChained: ["L", "M", "R"],
             containerChained: ["L", "M", "R"],
             resolverChained: ["L", "M", "R"],
-            decoratorChained: ["L", "M", "R"],
+            injectAllChained: ["L", "M", "R"],
             hookNearest: ["L"],
             containerNearest: ["L"],
             resolverNearest: ["L"],
-            decoratorNearest: ["L"],
+            injectAllNearest: ["L"],
             hookSelf: [],
             containerSelf: [],
             resolverSelf: [],

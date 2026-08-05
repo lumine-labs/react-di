@@ -7,9 +7,9 @@ import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { PropsRef, type PropsAdapter } from "../../src/core/providers/props-ref/props-ref.provider.js"
 import { useContainer, useModuleContext } from "../../src/react/hooks/useModuleContext.js"
 import { useResolve, useResolveOptional } from "../../src/react/hooks/useResolve.js"
-import { Container } from "../../src/container/index.js"
-import { Inject, Injectable, decorate } from "../../src/container/decorators.js"
-import type { InjectionToken, Provider } from "../../src/container/index.js"
+import { Container, inject } from "@remodulo/container"
+import type { InjectionToken } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { Root } from "../setup/react.js"
 
 // `createModuleComponent` is a scoped `ModuleProvider` plus an automatic props bridge: whatever the component is
@@ -607,14 +607,12 @@ describe("createModuleComponent with a PropsRef subclass as propsToken", () => {
     function readerOf<T>(token: InjectionToken<PropsRef<T>>) {
         const Service = class {
             readonly seen: T[] = []
+            readonly props = inject(token)
 
-            constructor(readonly props: PropsRef<T>) {
-                props.onUpdate((next) => void this.seen.push(next))
+            constructor() {
+                this.props.onUpdate((next) => void this.seen.push(next))
             }
         }
-
-        decorate(Injectable(), Service)
-        decorate(Inject(token), Service, 0)
 
         return Service
     }

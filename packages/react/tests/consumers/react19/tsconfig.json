@@ -14,10 +14,9 @@
         "lib": ["ES2022", "DOM", "DOM.Iterable"],
         "jsx": "react-jsx",
 
-        // Legacy decorators: Inversify parameter decorators (constructor injection) only exist there.
-        // `emitDecoratorMetadata` is not read by Inversify, but plenty of apps still have it on.
-        "experimentalDecorators": true,
-        "emitDecoratorMetadata": true,
+        // No decorator options at all. 0.10.0 needs neither `experimentalDecorators` nor
+        // `emitDecoratorMetadata`, and leaving them off is what proves it: a package that quietly
+        // depended on either would fail to typecheck here.
 
         // Stricter than the package builds itself with — that is the point of this gate.
         "strict": true,

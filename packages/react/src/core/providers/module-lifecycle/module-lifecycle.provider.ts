@@ -1,7 +1,9 @@
+import { Scope, type EntrySnapshot, type InjectionToken } from "@remodulo/container"
+
 import type { ModuleHooks, ProviderLifecycle } from "./module-lifecycle.types.js"
-import type { Module, ProviderSnapshot } from "../../module/module.js"
+import type { Module } from "../../module/module.js"
 import type { ModuleRegistry } from "../module-registry/module-registry.provider.js"
-import { Scope, type InjectionToken } from "../../../container/index.js"
+import { isLazyMetadata } from "../../provider/provider.js"
 
 // ModuleLifecycle
 // ========================================
@@ -102,7 +104,9 @@ export class ModuleLifecycle {
 
     /** Arm adoption, then build. Listeners must be live before anything constructs, or the eager pass is unseen. */
     #collectInstances(): void {
-        const groups = groupByToken(this.module.providers)
+        // The container's own entries, not the module's declared snapshot: `scope` is already defaulted
+        // there, and `lazy` rides along as the entry metadata the registration path wrote.
+        const groups = groupByToken(this.module.container.registrations())
 
         this.#observeOwnedInstances(groups)
         this.#resolveEagerGroups(groups)
@@ -115,14 +119,11 @@ export class ModuleLifecycle {
 
             // Singleton SCOPE, not resolution count: a lazy binding and a collection member are singletons
             // like any other, so `lazy` moves when this fires, never whether it is attached. Deciding per
-            // binding is what keeps "transients never participate in lifecycle" true inside a collection.
-            this.module.container.onPredicateResolution(
-                group.token,
-                (instance) => {
-                    if (isLifecycleCandidate(instance)) this.#appendInstance(instance)
-                },
-                (entry) => entry.scope === Scope.Singleton
-            )
+            // notification is what keeps "transients never participate in lifecycle" true inside a collection.
+            this.module.container.onResolution(group.token, (instance, entry) => {
+                if (entry.scope !== Scope.Singleton) return
+                if (isLifecycleCandidate(instance)) this.#appendInstance(instance)
+            })
         }
     }
 
@@ -271,7 +272,7 @@ export class ModuleLifecycle {
 
 /** One token's worth of declared providers — a multi token has several, behind one binding list. */
 type ProviderGroup = {
-    token: InjectionToken<unknown>
+    token: InjectionToken
     multi: boolean
     /** Gates observation: a group of nothing but aliases binds nothing here to watch. */
     bound: boolean
@@ -283,22 +284,23 @@ type ProviderGroup = {
 type GroupDraft = Omit<ProviderGroup, "eager"> & { retains: boolean; lazy: boolean }
 
 /** First-appearance order, which is registration order, which is the order a collection resolves in. */
-function groupByToken(providers: readonly ProviderSnapshot[]): ProviderGroup[] {
-    const drafts = new Map<InjectionToken<unknown>, GroupDraft>()
+function groupByToken(entries: readonly EntrySnapshot[]): ProviderGroup[] {
+    const drafts = new Map<InjectionToken, GroupDraft>()
 
-    for (const p of providers) {
-        const bound = !p.aliasOf
-        const retains = bound && (p.scope ?? Scope.Singleton) === Scope.Singleton
-        const draft = drafts.get(p.token)
+    for (const entry of entries) {
+        const bound = entry.kind !== "alias"
+        const retains = entry.kind !== "alias" && entry.scope === Scope.Singleton
+        const lazy = isLazyMetadata(entry.metadata)
+        const draft = drafts.get(entry.token)
 
         if (draft) {
             draft.bound ||= bound
             draft.retains ||= retains
-            draft.lazy ||= p.lazy === true
+            draft.lazy ||= lazy
             continue
         }
 
-        drafts.set(p.token, { token: p.token, multi: p.multi === true, bound, retains, lazy: p.lazy === true })
+        drafts.set(entry.token, { token: entry.token, multi: entry.multi, bound, retains, lazy })
     }
 
     // Laziness comes from whichever members declare it, never from the first entry — a value member

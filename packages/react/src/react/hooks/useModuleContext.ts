@@ -1,6 +1,6 @@
 import { useContext } from "react"
 
-import type { Container } from "../../container/index.js"
+import type { Container } from "@remodulo/container"
 import type { Module } from "../../core/module/module.js"
 import { ModuleContext, type ModuleContextValue } from "../context/ModuleContext.js"
 

@@ -6,7 +6,7 @@ import { createModuleComponent } from "../../src/react/factories/createModuleCom
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { PropsRef, type PropsAdapter } from "../../src/core/providers/props-ref/props-ref.provider.js"
 import { useResolve } from "../../src/react/hooks/useResolve.js"
-import type { InjectionToken } from "../../src/container/index.js"
+import type { InjectionToken } from "@remodulo/container"
 import { Root } from "../setup/react.js"
 
 // Pre-1.0 hardening for the props bridge. Everything here pins BEHAVIOUR AS MEASURED, not behaviour as

@@ -1,0 +1,23 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+
+        "noEmit": false,
+        // Without this, `tsc` writes a complete, well-formed `dist` out of source that does not compile —
+        // and every downstream gate then passes against declarations nobody could have built.
+        "noEmitOnError": true,
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+
+        // Members tagged `@internal` are omitted from the emitted `.d.ts`. What carries the tag now is
+        // `frame.ts`'s `activeFrame`/`runInFrame`, and `tests/build/declarations.test.ts` pins their absence
+        // from `dist`, so dropping this flag turns that gate red rather than quietly widening the surface.
+        "stripInternal": true,
+
+        "outDir": "dist"
+    }
+}

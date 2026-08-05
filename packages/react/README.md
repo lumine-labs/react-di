@@ -13,6 +13,18 @@ state.
 
 ## [Documentation](https://lumine-labs.github.io/remodulo/)
 
+## Install
+
+```sh
+npm install @remodulo/react
+```
+
+That's the whole setup. **No `reflect-metadata`, no decorators, no compiler flags** — no
+`experimentalDecorators`, no `emitDecoratorMetadata`, no Babel metadata plugin. Dependencies are plain
+classes and `inject()` calls, so any toolchain that compiles TypeScript compiles Remodulo.
+
+`react` is a peer dependency: `^18.0.0 || ^19.0.0`.
+
 ## The problem
 
 React is excellent at composing UI, but intentionally leaves ownership of application objects to the developer.
@@ -28,7 +40,7 @@ A module owns its dependency graph, resources, and lifecycle, and is destroyed t
 
 - **Explicit ownership** - every module owns its dependency graph and lifecycle.
 - **Deterministic LIFO/RAII lifecycle** - `init → mount → unmount → destroy`, synchronized with the React component tree.
-- **Scoped dependency injection** - constructor injection without global service locators or prop drilling.
+- **Scoped dependency injection** - injection without global service locators or prop drilling.
 - **Modular composition** - build applications from isolated, composable feature modules.
 - **Minimal Context usage** - Context becomes a module implementation detail rather than the primary application architecture.
 
@@ -57,22 +69,20 @@ When the UI subtree disappears, everything it owns disappears with it.
 ## Quick Example
 
 ```tsx
-import { App, AppProvider, Injectable, ModuleProvider, useResolve } from "@remodulo/react"
+import { App, AppProvider, ModuleProvider, inject, useResolve } from "@remodulo/react"
 
-@Injectable()
 class UserApi {
     // ...
 }
 
-@Injectable()
 class UserStore {
-    constructor(private readonly api: UserApi) {}
-    
-    onModuleMount() {
+    private readonly api = inject(UserApi)
+
+    onModuleMount(): void {
         void this.load()
     }
 
-    async load() {
+    async load(): Promise<void> {
         // ...
     }
 }
@@ -83,11 +93,9 @@ function Users() {
     return <UsersTable store={store} />
 }
 
-const app = new App()
-
 export function Root() {
     return (
-        <AppProvider app={app}>
+        <AppProvider app={() => new App()}>
             <ModuleProvider providers={[UserApi, UserStore]}>
                 <Users />
             </ModuleProvider>
@@ -95,6 +103,9 @@ export function Root() {
     )
 }
 ```
+
+`inject()` reads the container that is currently constructing — no token, no parameter decorator, no
+metadata. A provider opts into the lifecycle simply by having the method.
 
 ## Remodulo is **not**:
 
@@ -105,6 +116,7 @@ export function Root() {
 It focuses on one thing: **ownership of application objects and their lifetime.**
 
 Use MobX, Redux, Zustand, React Query, or any other library you prefer.
+[`@remodulo/mobx`](https://www.npmjs.com/package/@remodulo/mobx) is an optional companion for one of them.
 
 Remodulo manages ownership.
 Your state management, rendering, and data fetching remain entirely your choice.

@@ -1,6 +1,5 @@
 import { useState, type JSX, type ReactNode } from "react"
 
-import { decorate, Injectable } from "../../src/container/decorators.js"
 import { App, type ModuleParams } from "../../src/core/module/module.js"
 import { AppProvider } from "../../src/react/providers/AppProvider.js"
 import type { Provider } from "../../src/types.js"
@@ -18,7 +17,7 @@ export function Root({ children, ...params }: ModuleParams & { children?: ReactN
     return <AppProvider app={app}>{children}</AppProvider>
 }
 
-/** An injectable class that appends `<label>:<phase>` to `log` for every lifecycle hook. */
+/** A class that appends `<label>:<phase>` to `log` for every lifecycle hook. */
 export function svc(log: string[], label: string): Provider {
     const Service = class {
         onModuleInit(): void {
@@ -34,6 +33,5 @@ export function svc(log: string[], label: string): Provider {
             log.push(`${label}:destroy`)
         }
     }
-    decorate(Injectable(), Service)
     return Service as unknown as Provider
 }

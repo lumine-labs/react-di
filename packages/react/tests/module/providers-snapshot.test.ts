@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
 
-import { Container, Scope } from "../../src/container/index.js"
-import type { Constructor, Provider } from "../../src/container/index.js"
+import { Container, Scope } from "@remodulo/container"
+import type { Constructor } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { App, Module } from "../../src/core/module/module.js"
 import { ModuleLifecycle } from "../../src/core/providers/module-lifecycle/module-lifecycle.provider.js"
 import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"

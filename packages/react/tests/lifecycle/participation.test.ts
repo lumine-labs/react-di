@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { Injectable, Scope, decorate } from "../../src/container/index.js"
-import type { Provider } from "../../src/container/index.js"
+import { Scope } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import type { HookCounts } from "../setup/helpers.js"
 import { makeApp, makeChild, phase, plain, tracked } from "../setup/helpers.js"
 
@@ -190,7 +190,6 @@ describe("participation", () => {
                 log.push("D:destroy")
             }
         }
-        decorate(Injectable(), DestroyOnly)
 
         const module = makeApp({ providers: [DestroyOnly] })
         module.mount()

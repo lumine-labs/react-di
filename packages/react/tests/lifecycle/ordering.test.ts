@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { Inject, Injectable, decorate } from "../../src/container/index.js"
-import type { Constructor, Provider } from "../../src/container/index.js"
+import { inject } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { makeApp, makeChild, phase, tracked } from "../setup/helpers.js"
 
 // Phase ordering.
@@ -246,15 +246,15 @@ describe("construction order", () => {
         const dependency = tracked(log, "Dependency")
 
         class Dependent {
-            constructor(readonly dependency: unknown) {
+            readonly dependency = inject(DEPENDENCY)
+
+            constructor() {
                 log.push("Dependent:ctor")
             }
             onModuleDestroy(): void {
                 log.push("Dependent:destroy")
             }
         }
-        decorate(Injectable(), Dependent)
-        decorate(Inject(DEPENDENCY) as ParameterDecorator, Dependent as Constructor, 0)
 
         // Declared dependent-first; construction order is still dependency-first, and that is what the
         // lifecycle records.

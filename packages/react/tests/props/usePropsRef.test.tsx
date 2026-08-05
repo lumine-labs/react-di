@@ -6,7 +6,7 @@ import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { PropsRef, type PropsAdapter } from "../../src/core/providers/props-ref/props-ref.provider.js"
 import { usePropsRef } from "../../src/react/hooks/usePropsRef.js"
 import { useResolve, useResolveOptional } from "../../src/react/hooks/useResolve.js"
-import type { InjectionToken } from "../../src/container/index.js"
+import type { InjectionToken } from "@remodulo/container"
 import { Root } from "../setup/react.js"
 
 type Data = { label: string; count: number }

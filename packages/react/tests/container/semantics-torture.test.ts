@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { Container, Inject, Injectable, LazyToken, Scope, decorate } from "../../src/container/index.js"
-import type { Constructor, Provider } from "../../src/container/index.js"
+import { Container, Scope, inject } from "@remodulo/container"
+import type { Constructor, InjectionToken } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { App, Module } from "../../src/core/module/module.js"
 import { makeApp, makeChild } from "../setup/helpers.js"
 
@@ -13,20 +14,11 @@ import { makeApp, makeChild } from "../setup/helpers.js"
 // a bare `Container`, shadowing across three module levels, sibling isolation, deep constructor chains, and
 // the two things that are not semantics at all but hard failure modes: circular dependencies and `lazy`.
 //
-// vitest transforms with esbuild, which emits no `design:paramtypes`: every class goes through
-// `decorate(Injectable(), …)` and every constructor parameter through `decorate(Inject(TOKEN), …, i)`.
+// No decorators: a dependency is read with `inject()` in a field initializer, which runs before the
+// constructor body — so the construction order the chain tests assert is unchanged.
 
 // Helpers
 // ========================================
-
-function injectableClass<T extends Constructor>(target: T): T {
-    decorate(Injectable(), target)
-    return target
-}
-
-function injectParam(target: Constructor, token: Parameters<typeof Inject>[0], index: number): void {
-    decorate(Inject(token) as ParameterDecorator, target, index)
-}
 
 type Marks = { init: number; mount: number; unmount: number; destroy: number }
 
@@ -44,11 +36,14 @@ const NONE: Marks = { init: 0, mount: 0, unmount: 0, destroy: 0 }
 const ONCE: Marks = { init: 1, mount: 1, unmount: 1, destroy: 1 }
 
 /**
- * An injectable class that keeps every instance it ever builds and counts the four hooks PER INSTANCE.
+ * A class that keeps every instance it ever builds and counts the four hooks PER INSTANCE.
  * `helpers.tracked` counts per class, which cannot tell "one instance, adopted twice" from "two instances,
  * adopted once each" — and that distinction is the entire point of the per-container singleton proof.
+ *
+ * Trailing `tokens` are what the class injects, positionally: read in a field initializer, so every
+ * dependency is built before this instance's own constructor body runs.
  */
-function instrumented(label: string, log: string[]): Instrumented {
+function instrumented(label: string, log: string[], ...tokens: InjectionToken<unknown>[]): Instrumented {
     const instances: Instance[] = []
 
     const Service = class {
@@ -57,10 +52,9 @@ function instrumented(label: string, log: string[]): Instrumented {
         readonly label = label
         readonly serial: number
         readonly marks: Marks = { init: 0, mount: 0, unmount: 0, destroy: 0 }
-        readonly deps: readonly unknown[]
+        readonly deps: readonly unknown[] = tokens.map((token) => inject(token))
 
-        constructor(...deps: unknown[]) {
-            this.deps = deps
+        constructor() {
             this.serial = instances.length + 1
             instances.push(this as unknown as Instance)
             log.push(`${label}#${this.serial}:ctor`)
@@ -87,7 +81,6 @@ function instrumented(label: string, log: string[]): Instrumented {
         }
     }
 
-    decorate(Injectable(), Service)
     return Service as unknown as Instrumented
 }
 
@@ -227,15 +220,11 @@ describe("transient scope", () => {
         const TRANSIENT = Symbol.for("tests.torture.transient")
 
         class First {
-            constructor(readonly dependency: Instance) {}
+            readonly dependency = inject<Instance>(TRANSIENT)
         }
         class Second {
-            constructor(readonly dependency: Instance) {}
+            readonly dependency = inject<Instance>(TRANSIENT)
         }
-        injectableClass(First)
-        injectableClass(Second)
-        injectParam(First, TRANSIENT, 0)
-        injectParam(Second, TRANSIENT, 0)
 
         const module = makeApp({
             providers: [
@@ -535,16 +524,12 @@ describe("constructor dependency chains", () => {
 
     it("builds a four-deep chain once each and adopts it dependency-first", async () => {
         const log: string[] = []
-        const Alpha = instrumented("A", log)
-        const Beta = instrumented("B", log)
-        const Gamma = instrumented("C", log)
-        const Delta = instrumented("D", log)
-
         // A -> B -> C -> D. Deliberately DECLARED dependent-first, so declaration order and construction
         // order disagree and the assertions below are about construction, not about the provider list.
-        injectParam(Alpha, B, 0)
-        injectParam(Beta, C, 0)
-        injectParam(Gamma, D, 0)
+        const Alpha = instrumented("A", log, B)
+        const Beta = instrumented("B", log, C)
+        const Gamma = instrumented("C", log, D)
+        const Delta = instrumented("D", log)
 
         const module = makeApp({
             providers: [
@@ -579,15 +564,10 @@ describe("constructor dependency chains", () => {
 
     it("builds a shared leaf of a diamond once and hands both arms the same instance", () => {
         const log: string[] = []
-        const Top = instrumented("Top", log)
-        const Left = instrumented("L", log)
-        const Right = instrumented("R", log)
+        const Top = instrumented("Top", log, B, C)
+        const Left = instrumented("L", log, D)
+        const Right = instrumented("R", log, D)
         const Leaf = instrumented("Leaf", log)
-
-        injectParam(Top, B, 0)
-        injectParam(Top, C, 1)
-        injectParam(Left, D, 0)
-        injectParam(Right, D, 0)
 
         makeApp({
             providers: [
@@ -613,36 +593,30 @@ describe("constructor dependency chains", () => {
 // ========================================
 //
 // UNSUPPORTED BY DESIGN, permanently. A constructor cycle is a structural mistake in the consuming app, not
-// a case the container is expected to absorb: inversify detects it and throws, this library deliberately
-// does not intercept that, and no Delay-style escape hatch will be built. Throwing loudly at init IS the
-// contract, so the tests below pin the exact error text and where it surfaces. `LazyToken` exists solely
-// for the TDZ case (a token whose class is declared later in the file) — it is not, and will not become, a
-// cycle-breaker. For the rare legitimate cycle, factory-thunk indirection is the documented workaround.
+// a case the container is expected to absorb: the kernel walks its construction chain, detects the repeat
+// and throws, and no Delay-style escape hatch will be built. Throwing loudly at init IS the contract, so
+// the tests below pin the exact error text and where it surfaces. For the rare legitimate cycle,
+// factory-thunk indirection is the documented workaround.
 
 describe("circular dependencies", () => {
-    /** Alpha ↔ Beta by constructor injection, optionally deferred through `LazyToken`. */
-    function cycle(deferred: boolean): { container: Container; Alpha: Constructor; Beta: Constructor } {
+    /** Alpha and Beta reading each other from their field initializers. */
+    function cycle(): { container: Container; Alpha: Constructor; Beta: Constructor } {
         class Alpha {
-            constructor(readonly beta: unknown) {}
+            readonly beta = inject(Beta)
         }
         class Beta {
-            constructor(readonly alpha: unknown) {}
+            readonly alpha = inject(Alpha)
         }
-        injectableClass(Alpha)
-        injectableClass(Beta)
-        injectParam(Alpha, deferred ? LazyToken(() => Beta) : Beta, 0)
-        injectParam(Beta, deferred ? LazyToken(() => Alpha) : Alpha, 0)
 
         const container = new Container()
         container.register([Alpha as Provider, Beta as Provider])
         return { container, Alpha, Beta }
     }
 
-    it("throws inversify's circular-dependency error, naming the whole path", () => {
-        const { container, Alpha } = cycle(false)
+    it("throws the kernel's circular-dependency error, naming the whole path", () => {
+        const { container, Alpha } = cycle()
 
-        // Measured verbatim on inversify 8.2.x: the message walks the cycle back to its start rather than
-        // just naming the pair, and it is raised by inversify — this library neither wraps nor rewrites it.
+        // The message walks the cycle back to the repeat that opened it, rather than just naming the pair.
         expect(() => container.resolve(Alpha)).toThrowError("Circular dependency found: Alpha -> Beta -> Alpha")
 
         const thrown = (() => {
@@ -653,11 +627,11 @@ describe("circular dependencies", () => {
                 return error as Error
             }
         })()
-        expect(thrown?.constructor.name).toBe("InversifyCoreError")
+        expect(thrown?.constructor.name).toBe("CycleError")
     })
 
     it("reports the cycle from whichever end asked for it", () => {
-        const { container, Beta } = cycle(false)
+        const { container, Beta } = cycle()
 
         expect(() => container.resolve(Beta)).toThrowError("Circular dependency found: Beta -> Alpha -> Beta")
     })
@@ -669,15 +643,11 @@ describe("circular dependencies", () => {
      */
     it("escapes Module.init() raw and leaves the module un-initialized", () => {
         class Alpha {
-            constructor(readonly beta: unknown) {}
+            readonly beta = inject(Beta)
         }
         class Beta {
-            constructor(readonly alpha: unknown) {}
+            readonly alpha = inject(Alpha)
         }
-        injectableClass(Alpha)
-        injectableClass(Beta)
-        injectParam(Alpha, Beta, 0)
-        injectParam(Beta, Alpha, 0)
 
         const app = new App({ providers: [Alpha as Provider, Beta as Provider] })
 
@@ -687,29 +657,19 @@ describe("circular dependencies", () => {
     })
 
     /**
-     * `LazyToken` is not a cycle-breaker and is not meant to be. It wraps inversify's
-     * `LazyServiceIdentifier`, which defers evaluation of the IDENTIFIER, not construction of the instance —
-     * so a cycle wrapped in it throws the identical error. Pinned so nobody reaches for it as an escape
-     * hatch on the strength of the name.
+     * The TDZ case the old deferred-token wrapper existed for is gone with the decorators. A decorator
+     * evaluated its token argument at class-DECLARATION time, so a class declared further down the file
+     * was still in its temporal dead zone. `inject()` runs at CONSTRUCTION time, by which point every
+     * declaration in the module has been evaluated — nothing to defer, and no wrapper to defer it with.
      */
-    it("changes nothing about a cycle — LazyToken throws the identical message", () => {
-        const { container, Alpha } = cycle(true)
-
-        expect(() => container.resolve(Alpha)).toThrowError("Circular dependency found: Alpha -> Beta -> Alpha")
-    })
-
-    it("pins what LazyToken is actually for: a token still in its TDZ at decoration time", () => {
+    it("needs no deferral for a token whose class is declared later in the file", () => {
         class Consumer {
-            constructor(readonly later: unknown) {}
+            readonly later = inject(Later)
         }
-        injectableClass(Consumer)
-        // A bare `Inject(Later)` here throws `Cannot access 'Later' before initialization`.
-        injectParam(Consumer, LazyToken(() => Later), 0)
 
         class Later {
             readonly kind = "later"
         }
-        injectableClass(Later)
 
         const container = new Container()
         container.register([Consumer as Provider, Later as Provider])
@@ -721,15 +681,11 @@ describe("circular dependencies", () => {
         const GET_BETA = Symbol.for("tests.torture.get-beta")
 
         class Alpha {
-            constructor(readonly getBeta: () => unknown) {}
+            readonly getBeta = inject<() => unknown>(GET_BETA)
         }
         class Beta {
-            constructor(readonly alpha: unknown) {}
+            readonly alpha = inject(Alpha)
         }
-        injectableClass(Alpha)
-        injectableClass(Beta)
-        injectParam(Alpha, GET_BETA, 0)
-        injectParam(Beta, Alpha, 0)
 
         const module = makeApp({
             providers: [
@@ -771,7 +727,6 @@ describe("a provider constructor that throws", () => {
                 throw new Error("boom from a constructor")
             }
         }
-        injectableClass(Exploding)
 
         const module = new App({ providers: [{ provide: THROWS, useClass: Exploding } as Provider] })
 

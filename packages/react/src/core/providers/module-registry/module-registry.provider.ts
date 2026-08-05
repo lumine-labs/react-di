@@ -1,4 +1,4 @@
-import type { Container, InjectionToken } from "../../../container/index.js"
+import type { Container, InjectionToken } from "@remodulo/container"
 import type { Module } from "../../module/module.js"
 
 // ModuleRegistry
@@ -78,11 +78,11 @@ export class ModuleRegistry {
      * Nearest ancestor holding the token. Asks the container rather than the declared provider snapshot,
      * which cannot see registrations made after resolution.
      */
-    findAncestorByProvider(token: InjectionToken<unknown>): Container | null {
+    findAncestorByProvider(token: InjectionToken): Container | null {
         return this.ancestors().find((container) => container.isRegistered(token, "self")) ?? null
     }
 
-    findDescendantsByProvider(token: InjectionToken<unknown>): Container[] {
+    findDescendantsByProvider(token: InjectionToken): Container[] {
         return this.descendants().filter((container) => container.isRegistered(token, "self"))
     }
 }

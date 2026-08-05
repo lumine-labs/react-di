@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { Container, InjectAll, Injectable, ResolveAllMode, Scope, decorate } from "../../src/container/index.js"
-import type { ClassProvider, Constructor, FactoryDependency } from "../../src/container/index.js"
+import { Container, ResolveAllMode, Scope, injectAll } from "@remodulo/container"
+import type { Constructor } from "@remodulo/container"
+import type { ClassProvider, FactoryDependency } from "../../src/core/provider/provider.types.js"
+import { registerProviders } from "../../src/core/provider/provider.js"
 import { Resolver } from "../../src/core/providers/resolver/resolver.provider.js"
+import { makeApp, makeChild } from "../setup/helpers.js"
 
 // Multi-providers.
 // ========================================
@@ -13,10 +16,6 @@ import { Resolver } from "../../src/core/providers/resolver/resolver.provider.js
 // lets `resolve` and `resolveAll` decide from the nearest declared mode alone, and it is why every
 // diagonal cell of the matrix below throws at registration rather than at the read.
 
-function injectableClass<T extends Constructor>(target: T): T {
-    decorate(Injectable(), target)
-    return target
-}
 
 const TOKEN = Symbol("PLUGINS")
 
@@ -41,7 +40,6 @@ describe("registration matrix — same container", () => {
 
     it("multi: false claims the token exactly as omitting multi does", () => {
         class Service {}
-        injectableClass(Service)
 
         const container = new Container()
         container.register({ provide: TOKEN, useClass: Service, multi: false })
@@ -86,7 +84,6 @@ describe("registration matrix — same container", () => {
 
     it("rejects the mix whichever provider form carries it", () => {
         class Service {}
-        injectableClass(Service)
 
         const container = new Container()
         container.register({ provide: TOKEN, useClass: Service, multi: true })
@@ -242,8 +239,6 @@ describe("aliases", () => {
     }
 
     it("may BE a collection member, contributing the target's instance", () => {
-        injectableClass(Legacy)
-        injectableClass(Direct)
 
         const container = new Container()
         container.register(Legacy)
@@ -326,79 +321,98 @@ describe("aliases", () => {
     })
 })
 
+// `lazy` is a react-level key with no kernel counterpart: the kernel container knows nothing about an
+// eager pass, so the uniformity claim moved to the MODULE registration path, which is the only place
+// `lazy` is read at all. The error text is unchanged, and so is every rule below it.
 describe("lazy uniformity", () => {
     class Service {}
-    injectableClass(Service)
 
     it("accepts a collection whose constructing members agree", () => {
-        const container = new Container()
-        container.register({ provide: TOKEN, useClass: Service, multi: true, lazy: true })
-        container.register({ provide: TOKEN, useFactory: () => new Service(), multi: true, lazy: true })
+        const module = makeApp({
+            providers: [
+                { provide: TOKEN, useClass: Service, multi: true, lazy: true },
+                { provide: TOKEN, useFactory: () => new Service(), multi: true, lazy: true },
+            ],
+        })
 
-        expect(container.resolveAll(TOKEN)).toHaveLength(2)
+        expect(module.container.resolveAll(TOKEN)).toHaveLength(2)
     })
 
     it("lets a value member into a lazy collection — it has no laziness to disagree about", () => {
         // Structurally outside the rule, not exempted from it: a `useValue` is already an instance, so
         // there is nothing for `lazy` to defer.
-        const container = new Container()
-        container.register({ provide: TOKEN, useClass: Service, multi: true, lazy: true })
-        container.register({ provide: TOKEN, useValue: "ready", multi: true })
+        const module = makeApp({
+            providers: [
+                { provide: TOKEN, useClass: Service, multi: true, lazy: true },
+                { provide: TOKEN, useValue: "ready", multi: true },
+            ],
+        })
 
-        expect(container.resolveAll(TOKEN)).toHaveLength(2)
+        expect(module.container.resolveAll(TOKEN)).toHaveLength(2)
     })
 
     it("lets an alias member into a lazy collection for the same reason", () => {
-        const container = new Container()
-        container.register(Service)
-        container.register({ provide: TOKEN, useClass: Service, multi: true, lazy: true })
-        container.register({ provide: TOKEN, useExisting: Service, multi: true })
+        const module = makeApp({
+            providers: [
+                Service,
+                { provide: TOKEN, useClass: Service, multi: true, lazy: true },
+                { provide: TOKEN, useExisting: Service, multi: true },
+            ],
+        })
 
-        expect(container.resolveAll(TOKEN)).toHaveLength(2)
+        expect(module.container.resolveAll(TOKEN)).toHaveLength(2)
     })
 
     it("lets a value member in first, before the collection is lazy at all", () => {
         // Order must not matter: the value declares nothing, so it cannot set a verdict for the
         // constructing members to be measured against.
-        const container = new Container()
-        container.register({ provide: TOKEN, useValue: "ready", multi: true })
-        container.register({ provide: TOKEN, useClass: Service, multi: true, lazy: true })
+        const module = makeApp({
+            providers: [
+                { provide: TOKEN, useValue: "ready", multi: true },
+                { provide: TOKEN, useClass: Service, multi: true, lazy: true },
+            ],
+        })
 
-        expect(container.resolveAll(TOKEN)).toHaveLength(2)
+        expect(module.container.resolveAll(TOKEN)).toHaveLength(2)
     })
 
     it("rejects a lazy member joining an eager collection", () => {
-        const container = new Container()
-        container.register({ provide: TOKEN, useClass: Service, multi: true })
-
-        expect(() => container.register({ provide: TOKEN, useClass: Service, multi: true, lazy: true })).toThrow(
+        expect(() =>
+            makeApp({
+                providers: [
+                    { provide: TOKEN, useClass: Service, multi: true },
+                    { provide: TOKEN, useClass: Service, multi: true, lazy: true },
+                ],
+            })
+        ).toThrow(
             "Provider for PLUGINS declares `lazy: true` while the collection already registered for that token is `lazy: false`."
         )
     })
 
     it("rejects an eager member joining a lazy collection", () => {
-        const container = new Container()
-        container.register({ provide: TOKEN, useClass: Service, multi: true, lazy: true })
-
-        expect(() => container.register({ provide: TOKEN, useClass: Service, multi: true })).toThrow(
+        expect(() =>
+            makeApp({
+                providers: [
+                    { provide: TOKEN, useClass: Service, multi: true, lazy: true },
+                    { provide: TOKEN, useClass: Service, multi: true },
+                ],
+            })
+        ).toThrow(
             "Provider for PLUGINS declares `lazy: false` while the collection already registered for that token is `lazy: true`."
         )
     })
 
-    it("is per container, not per chain — each module builds its own contributions", () => {
-        const parent = new Container()
-        parent.register({ provide: TOKEN, useClass: Service, multi: true })
-        const child = parent.fork()
-        child.register({ provide: TOKEN, useClass: Service, multi: true, lazy: true })
+    it("is per module, not per chain — each module builds its own contributions", () => {
+        const parent = makeApp({ providers: [{ provide: TOKEN, useClass: Service, multi: true }] })
+        const child = makeChild(parent, { providers: [{ provide: TOKEN, useClass: Service, multi: true, lazy: true }] })
 
-        expect(child.resolveAll(TOKEN)).toHaveLength(2)
+        expect(child.container.resolveAll(TOKEN)).toHaveLength(2)
     })
 })
 
 describe("multi requires an explicit provide", () => {
     it("rejects the class shorthand at runtime, as the types do at compile time", () => {
         class Service {}
-        injectableClass(Service)
 
         const container = new Container()
 
@@ -417,8 +431,6 @@ describe("observation", () => {
         class B {
             readonly name = "b"
         }
-        injectableClass(A)
-        injectableClass(B)
 
         const container = new Container()
         container.register({ provide: TOKEN, useClass: A, multi: true })
@@ -472,7 +484,6 @@ describe("observation", () => {
         // Aliases carry no binding of their own: resolving one fires the TARGET's listener, on the
         // container that registered the target. There is nothing here to attach to.
         class Legacy {}
-        injectableClass(Legacy)
 
         const container = new Container()
         container.register(Legacy)
@@ -481,16 +492,15 @@ describe("observation", () => {
         expect(() => container.onResolution(TOKEN, () => undefined)).toThrow("Cannot observe PLUGINS")
     })
 
-    // `onPredicateResolution` is `@internal` and stripped from the published declarations — these tests
-    // reach it deliberately, compiling against src, because it is the mechanism the whole adoption
-    // contract rests on. Its absence from the public surface is pinned in the consumer fixtures.
-    it("the singleton predicate skips a transient member sharing the token", () => {
+    // The kernel has one observation door, `onResolution`, and it hands the listener the snapshot of the
+    // entry that produced the value. Selecting by scope is therefore an `if` in the listener rather than a
+    // predicate consulted at attach time — the mechanism the whole adoption contract rests on.
+    it("an in-listener singleton filter skips a transient member sharing the token", () => {
         // The standing invariant since 0.4.0: transients never participate in lifecycle. Filtering per
         // BINDING rather than per token is what keeps that true inside a collection.
         class Transient {
             readonly name = "transient"
         }
-        injectableClass(Transient)
 
         // One observation per container — see the last test in this block for why they cannot share one.
         const mixed = (): Container => {
@@ -506,11 +516,9 @@ describe("observation", () => {
 
         const retained: string[] = []
         const singletons = mixed()
-        singletons.onPredicateResolution<{ name: string }>(
-            TOKEN,
-            (instance) => retained.push(instance.name),
-            (entry) => entry.scope === Scope.Singleton
-        )
+        singletons.onResolution<{ name: string }>(TOKEN, (instance, entry) => {
+            if (entry.scope === Scope.Singleton) retained.push(instance.name)
+        })
 
         for (const container of [everything, singletons]) {
             container.resolveAll(TOKEN)
@@ -523,9 +531,8 @@ describe("observation", () => {
         expect(retained).toEqual(["constant"])
     })
 
-    it("the singleton predicate attaches to nothing when the token retains nothing", () => {
+    it("the singleton filter reports nothing when the token retains nothing", () => {
         class Transient {}
-        injectableClass(Transient)
 
         const seen: unknown[] = []
         const container = new Container()
@@ -533,26 +540,17 @@ describe("observation", () => {
         container.register({ provide: TOKEN, useFactory: () => new Transient(), multi: true, scope: Scope.Transient })
 
         // Not an error: a token whose every binding is transient simply retains nothing.
-        container.onPredicateResolution(TOKEN, (instance) => seen.push(instance), (entry) => entry.scope === Scope.Singleton)
+        container.onResolution(TOKEN, (instance, entry) => {
+            if (entry.scope === Scope.Singleton) seen.push(instance)
+        })
         container.resolveAll(TOKEN)
 
         expect(seen).toEqual([])
     })
 
-    it("a predicate observation still refuses a token with no bindings of its own", () => {
-        // Scope decides what is attached to; REGISTRATION is still what the error is about.
-        const container = new Container()
-
-        expect(() => container.onPredicateResolution(TOKEN, () => undefined, () => true)).toThrow(
-            "Cannot observe PLUGINS"
-        )
-    })
-
     it("keeps every observer of a binding, notified in attach order", () => {
-        // Inversify's own `onActivation` REPLACES rather than chains — measured in
-        // scratch/probe-multiprovider-7-double-activation.ts, which is why the container installs one real
-        // handler per binding and dispatches to a list. Without that, the second observer here would
-        // silently unhook the first.
+        // The kernel keeps a listener LIST per entry and walks a copy of it, so observers accumulate
+        // rather than replacing one another — the failure mode inversify's `onActivation` had.
         const order: string[] = []
 
         const container = new Container()
@@ -566,17 +564,15 @@ describe("observation", () => {
         expect(order).toEqual(["first:v", "second:v", "third:v"])
     })
 
-    it("lets onResolution and a predicate observation share a binding", () => {
+    it("lets an unfiltered and a filtered observation share a binding", () => {
         const seen: string[] = []
 
         const container = new Container()
         container.register({ provide: TOKEN, useValue: "v", multi: true })
         container.onResolution<string>(TOKEN, (instance) => seen.push(`all:${instance}`))
-        container.onPredicateResolution<string>(
-            TOKEN,
-            (instance) => seen.push(`retained:${instance}`),
-            (entry) => entry.scope === Scope.Singleton
-        )
+        container.onResolution<string>(TOKEN, (instance, entry) => {
+            if (entry.scope === Scope.Singleton) seen.push(`retained:${instance}`)
+        })
 
         container.resolveAll(TOKEN)
 
@@ -585,7 +581,6 @@ describe("observation", () => {
 
     it("notifies every observer of a transient binding on every construction", () => {
         class Service {}
-        injectableClass(Service)
 
         const first: number[] = []
         const second: number[] = []
@@ -624,8 +619,6 @@ describe("observation", () => {
         class Direct {
             readonly name = "direct"
         }
-        injectableClass(Legacy)
-        injectableClass(Direct)
 
         const container = new Container()
         container.register(Legacy)
@@ -642,11 +635,10 @@ describe("observation", () => {
 describe("scopes inside a collection", () => {
     // Scope is per MEMBER, and there is no uniformity rule. There briefly was one: while adoption was
     // filtered per token, a transient sharing a token with a singleton got adopted and accumulated. Since
-    // adoption is filtered per binding (`onPredicateResolution`), the shape it forbade no longer breaks
-    // anything, so the guard came out — each member simply behaves as it was declared.
+    // adoption is filtered per NOTIFICATION — every `onResolution` callback gets the producing entry's
+    // snapshot — the shape it forbade no longer breaks anything, so the guard came out.
 
     class Service {}
-    injectableClass(Service)
 
     it("accepts a singleton and a transient member under one token, either order", () => {
         const singletonFirst = new Container()
@@ -706,49 +698,59 @@ describe("scopes inside a collection", () => {
 
     it("still refuses members that disagree about lazy — that one IS group-coupled", () => {
         // The distinction the removal turns on: the eager pass builds a collection whole, so laziness
-        // belongs to the group; scope belongs to the binding and nothing reads it collectively.
-        const container = new Container()
-        container.register({ provide: TOKEN, useClass: Service, multi: true, scope: Scope.Transient })
-
+        // belongs to the group; scope belongs to the binding and nothing reads it collectively. `lazy` is
+        // a react-level key, so the claim is made where it is read — the module registration path.
         expect(() =>
-            container.register({ provide: TOKEN, useClass: Service, multi: true, scope: Scope.Transient, lazy: true })
+            makeApp({
+                providers: [
+                    { provide: TOKEN, useClass: Service, multi: true, scope: Scope.Transient },
+                    { provide: TOKEN, useClass: Service, multi: true, scope: Scope.Transient, lazy: true },
+                ],
+            })
         ).toThrow("declares `lazy: true`")
     })
 })
 
 describe("claim precedence", () => {
     class Service {}
-    injectableClass(Service)
 
     // Three claims, in a fixed order — mode, then alias, then lazy — and the first one violated is the one
     // reported. A provider that gets two things wrong hears about the earlier one, so the message never
-    // depends on which check happens to be cheaper.
+    // depends on which check happens to be cheaper. Mode and alias are the KERNEL's claims and lazy is
+    // react's, so the order is now a property of the registration path: it hands each provider to the
+    // kernel first and only then settles `lazy`.
 
     it("reports the mode conflict before anything about lazy", () => {
-        const container = new Container()
-        container.register({ provide: TOKEN, useClass: Service })
-
         expect(() =>
-            container.register({ provide: TOKEN, useClass: Service, multi: true, lazy: true })
+            makeApp({
+                providers: [
+                    { provide: TOKEN, useClass: Service },
+                    { provide: TOKEN, useClass: Service, multi: true, lazy: true },
+                ],
+            })
         ).toThrow("is already a single registration on this container")
     })
 
     it("reports the alias conflict before anything about lazy", () => {
-        const container = new Container()
-        container.register({ provide: Symbol("ALIAS"), useExisting: TOKEN })
-
         expect(() =>
-            container.register({ provide: TOKEN, useClass: Service, multi: true, lazy: true })
+            makeApp({
+                providers: [
+                    { provide: Symbol("ALIAS"), useExisting: TOKEN },
+                    { provide: TOKEN, useClass: Service, multi: true, lazy: true },
+                ],
+            })
         ).toThrow("cannot alias PLUGINS")
     })
 
     it("reports the lazy mismatch once mode and alias are settled", () => {
-        const container = new Container()
-        container.register({ provide: TOKEN, useClass: Service, multi: true })
-
-        expect(() => container.register({ provide: TOKEN, useClass: Service, multi: true, lazy: true })).toThrow(
-            "declares `lazy: true`"
-        )
+        expect(() =>
+            makeApp({
+                providers: [
+                    { provide: TOKEN, useClass: Service, multi: true },
+                    { provide: TOKEN, useClass: Service, multi: true, lazy: true },
+                ],
+            })
+        ).toThrow("declares `lazy: true`")
     })
 })
 
@@ -756,10 +758,9 @@ describe("claim precedence", () => {
 // ========================================
 //
 // `Resolver` mirrors `Container`'s read surface exactly — that is its whole job — and a mode means the same
-// thing on every read that takes it. The one surface that cannot carry the whole set is the decorator, and
-// its narrower union is measured and pinned below. A factory's `inject` array is the fourth such surface:
-// unlike the decorator it is resolved by US, not by inversify's planner, so it carries the whole set and
-// routes to the very same reads.
+// thing on every read that takes it. The decorator used to be the one surface that could not carry the
+// whole set; `injectAll` replaces it and does, so all four surfaces now agree mode for mode. A factory's
+// `inject` array is the fourth: it is routed by US, and it routes to the very same reads.
 
 describe("Resolver parity", () => {
     function chain(): { resolver: Resolver; bare: Resolver; leaf: Container } {
@@ -824,17 +825,11 @@ describe("Resolver parity", () => {
     })
 })
 
-describe("@InjectAll parity", () => {
-    function collector(token: symbol, mode?: "nearest" | "chained"): Constructor<{ plugins: string[] }> {
+describe("injectAll parity", () => {
+    function collector(token: symbol, mode?: ResolveAllMode): Constructor<{ plugins: string[] }> {
         const Collector = class {
-            constructor(readonly plugins: string[]) {}
+            readonly plugins: string[] = mode === undefined ? injectAll<string>(token) : injectAll<string>(token, mode)
         }
-        decorate(Injectable(), Collector)
-        decorate(
-            (mode === undefined ? InjectAll(token) : InjectAll(token, mode)) as ParameterDecorator,
-            Collector,
-            0
-        )
 
         return Collector as unknown as Constructor<{ plugins: string[] }>
     }
@@ -874,26 +869,25 @@ describe("@InjectAll parity", () => {
         expect(container.resolve(Nearest).plugins).toEqual([])
     })
 
-    it("AGREES on an empty own container with a contributing ancestor — every surface that has `nearest`", () => {
-        // This corner used to be the one divergence: `Container.resolveAll(token, false)` guarded
-        // inversify's fallback and answered [], while the decorator — resolving inside inversify's planner,
-        // out of reach of any guard — answered the ancestor's members (MEASURED, probe-8 8a/8c).
-        //
-        // Owner ruling 2026-08-01: conform to the substrate, then name the guard instead of hiding it.
-        // `nearest` IS the substrate everywhere, decorator included; the guarded read became `self`, which
-        // the decorator's union deliberately excludes because the planner cannot express it.
+    it("AGREES on an empty own container with a contributing ancestor — every surface, `self` included", () => {
+        // This corner used to be the one divergence: the decorator resolved inside inversify's planner,
+        // out of reach of any guard, and could not express `self` at all — so its mode union was narrower
+        // than `resolveAll`'s (MEASURED, probe-8 8a/8c). `injectAll` is the same read as `resolveAll`,
+        // takes the same three modes, and answers identically in all of them.
         const root = new Container()
         root.register({ provide: TOKEN, useValue: "root", multi: true })
         const bare = root.fork()
 
         const Nearest = collector(TOKEN, "nearest")
-        bare.register(Nearest)
+        const Self = collector(TOKEN, "self")
+        bare.register([Nearest, Self])
 
         expect(bare.resolve(Nearest).plugins).toEqual(["root"])
         expect(bare.resolveAll(TOKEN, "nearest")).toEqual(["root"])
         expect(new Resolver(bare).resolveAll(TOKEN, "nearest")).toEqual(["root"])
 
-        // ...and the mode the decorator cannot have is exactly the one that answers differently here.
+        // The mode the decorator could not have, now answering the same as every other surface.
+        expect(bare.resolve(Self).plugins).toEqual([])
         expect(bare.resolveAll(TOKEN, "self")).toEqual([])
     })
 
@@ -933,7 +927,10 @@ describe("factory inject parity", () => {
      */
     function injected(container: Container, dependency: FactoryDependency): unknown {
         const token = Symbol("COLLECTOR")
-        container.register({ provide: token, useFactory: (received: unknown) => received, inject: [dependency] })
+        // `inject` is react's key, so the registration goes through react's path rather than the kernel's.
+        registerProviders(container, [
+            { provide: token, useFactory: (received: unknown) => received, inject: [dependency] },
+        ])
 
         return container.resolve(token)
     }
@@ -1048,11 +1045,13 @@ describe("factory inject parity", () => {
         leaf.register({ provide: SINGLE, useValue: "one" })
 
         const HOST = Symbol("HOST")
-        leaf.register({
-            provide: HOST,
-            useFactory: (...args: unknown[]) => args,
-            inject: [SINGLE, { token: MISSING, optional: true }, { token: TOKEN, multi: true, mode: "self" }],
-        })
+        registerProviders(leaf, [
+            {
+                provide: HOST,
+                useFactory: (...args: unknown[]) => args,
+                inject: [SINGLE, { token: MISSING, optional: true }, { token: TOKEN, multi: true, mode: "self" }],
+            },
+        ])
 
         expect(leaf.resolve(HOST)).toEqual(["one", undefined, ["leaf"]])
     })

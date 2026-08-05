@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 
-import { Container, Inject, Injectable, Scope, decorate } from "../../src/container/index.js"
-import type { Constructor } from "../../src/container/index.js"
-import type { Provider } from "../../src/container/index.js"
+import { Container, Scope, inject } from "@remodulo/container"
+import type { Constructor } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { makeApp, tracked } from "../setup/helpers.js"
 
 // onResolution — the hook the module lifecycle is built on.
@@ -11,19 +11,9 @@ import { makeApp, tracked } from "../setup/helpers.js"
 // It reports instances at construction time, on the container that owns the binding. Everything the
 // lifecycle knows about "what belongs to this module" comes from here.
 
-function injectableClass<T extends Constructor>(target: T): T {
-    decorate(Injectable(), target)
-    return target
-}
-
-function injectParam(target: Constructor, token: Parameters<typeof Inject>[0], index: number): void {
-    decorate(Inject(token) as ParameterDecorator, target, index)
-}
-
 describe("onResolution", () => {
     it("fires once per constructed singleton, however often it is resolved", () => {
         class Service {}
-        injectableClass(Service)
         const seen: unknown[] = []
 
         const container = new Container()
@@ -68,7 +58,6 @@ describe("onResolution", () => {
 
     it("does not fire until something resolves the token", () => {
         class Service {}
-        injectableClass(Service)
         const seen: unknown[] = []
 
         const container = new Container()
@@ -80,7 +69,6 @@ describe("onResolution", () => {
 
     it("fires on the owning container when a descendant resolves the binding", () => {
         class Service {}
-        injectableClass(Service)
         const seen: string[] = []
 
         const owner = new Container()
@@ -99,12 +87,9 @@ describe("onResolution", () => {
     it("reports a dependency before the instance that injected it", () => {
         const B = Symbol("B")
         class Dependency {}
-        injectableClass(Dependency)
         class Dependent {
-            constructor(readonly dependency: unknown) {}
+            readonly dependency = inject<unknown>(B)
         }
-        injectableClass(Dependent)
-        injectParam(Dependent, B, 0)
 
         const order: string[] = []
         const container = new Container()
@@ -119,7 +104,6 @@ describe("onResolution", () => {
 
     it("fires per instance for a transient binding", () => {
         class Service {}
-        injectableClass(Service)
         const TOKEN = Symbol("transient")
         const seen: unknown[] = []
 
@@ -137,7 +121,6 @@ describe("onResolution", () => {
 
     it("fires the target's listener when an alias is resolved, and refuses to observe the alias", () => {
         class Service {}
-        injectableClass(Service)
         const ALIAS = Symbol("alias")
         const seen: string[] = []
 
@@ -159,7 +142,6 @@ describe("onResolution", () => {
         class Service {
             readonly id = "service"
         }
-        injectableClass(Service)
         let reported: Service | undefined
 
         const container = new Container()
@@ -299,7 +281,6 @@ describe("multicast", () => {
         const TOKEN = Symbol("reentrant")
 
         class Service {}
-        injectableClass(Service)
 
         const container = new Container()
         container.register({ provide: TOKEN, useClass: Service, scope: Scope.Transient })

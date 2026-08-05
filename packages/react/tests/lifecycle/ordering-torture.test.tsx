@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest"
 import { fireEvent, render } from "@testing-library/react"
 import type { ReactNode } from "react"
 
-import { Inject, Injectable, decorate } from "../../src/container/index.js"
-import type { Constructor, Provider } from "../../src/container/index.js"
+import { inject } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { Module } from "../../src/core/module/module.js"
 import { useModuleContext } from "../../src/react/hooks/useModuleContext.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
@@ -94,7 +94,9 @@ describe("providers within one module", () => {
         const dependency = tracked(log, "Dep")
 
         class Owner {
-            constructor(readonly dependency: unknown) {
+            readonly dependency = inject(DEPENDENCY)
+
+            constructor() {
                 log.push("Owner:ctor")
             }
             onModuleInit(): void {
@@ -110,8 +112,6 @@ describe("providers within one module", () => {
                 log.push("Owner:destroy")
             }
         }
-        decorate(Injectable(), Owner)
-        decorate(Inject(DEPENDENCY) as ParameterDecorator, Owner as Constructor, 0)
 
         return [
             { provide: Owner, useClass: Owner } as Provider,

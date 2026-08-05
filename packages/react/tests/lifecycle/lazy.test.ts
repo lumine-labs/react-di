@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { Scope } from "../../src/container/index.js"
-import type { Provider } from "../../src/container/index.js"
+import { Scope } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { makeApp, makeChild, phase, tracked } from "../setup/helpers.js"
 
 // lazy providers.

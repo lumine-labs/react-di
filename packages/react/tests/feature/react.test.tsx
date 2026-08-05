@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import type { Provider } from "../../src/container/index.js"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { createFeature } from "../../src/core/feature/feature.js"
 import { createModuleComponent } from "../../src/react/factories/createModuleComponent.js"
 import { useResolveAll } from "../../src/react/hooks/useResolveAll.js"

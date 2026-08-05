@@ -2,7 +2,7 @@ import { act, cleanup, render } from "@testing-library/react"
 import { beforeAll, describe, expect, it } from "vitest"
 import { useEffect, type ReactNode } from "react"
 
-import type { Provider } from "../../src/container/index.js"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { App, type Module } from "../../src/core/module/module.js"
 import { PropsRef } from "../../src/core/providers/props-ref/props-ref.provider.js"
 import { AppProvider } from "../../src/react/providers/AppProvider.js"

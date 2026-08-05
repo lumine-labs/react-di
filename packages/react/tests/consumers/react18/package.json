@@ -8,9 +8,9 @@
         "typecheck": "tsc -p tsconfig.json"
     },
     "dependencies": {
-        "@remodulo/react": "file:../../..",
-        "react": "^18.3.1",
-        "reflect-metadata": "^0.2.2"
+        "@remodulo/container": "file:../.tarballs/remodulo-container.tgz",
+        "@remodulo/react": "file:../.tarballs/remodulo-react.tgz",
+        "react": "^18.3.1"
     },
     "devDependencies": {
         "@types/react": "^18.3.12",

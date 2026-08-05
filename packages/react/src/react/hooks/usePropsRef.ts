@@ -1,7 +1,8 @@
 import { useRef, useState } from "react"
 import { useIsomorphicLayoutEffect } from "@luminelabs/react-toolkit"
 
-import type { InjectionToken, ValueProvider } from "../../container/index.js"
+import type { InjectionToken } from "@remodulo/container"
+import type { ValueProvider } from "../../core/provider/provider.types.js"
 import { PropsRef, type PropsAdapter } from "../../core/providers/props-ref/props-ref.provider.js"
 
 // usePropsRef

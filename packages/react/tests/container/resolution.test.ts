@@ -1,17 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import {
-    Container,
-    InjectAll,
-    Injectable,
-    RegistrationMode,
-    ResolveAllMode,
-    ResolveMode,
-    Scope,
-    decorate,
-} from "../../src/container/index.js"
-import type { Constructor } from "../../src/container/index.js"
-
+import { Container, RegistrationMode, ResolveAllMode, ResolveMode, Scope, injectAll } from "@remodulo/container"
+import type { Constructor } from "@remodulo/container"
 // resolve / resolveOptional / resolveOr / resolveAll / isRegistered.
 // ========================================
 //
@@ -28,10 +18,6 @@ import type { Constructor } from "../../src/container/index.js"
 // The two families never meet on one token: a single registration refuses `resolveAll` and a collection
 // refuses `resolve`, so a chain is either shadowing (`chain()`) or contributing (`multiChain()`).
 
-function injectableClass<T extends Constructor>(target: T): T {
-    decorate(Injectable(), target)
-    return target
-}
 
 function chain(): { root: Container; middle: Container; leaf: Container; token: symbol } {
     const token = Symbol("PLUGIN")
@@ -96,7 +82,6 @@ describe("resolve", () => {
 describe("resolveOptional", () => {
     it("returns the instance when registered", () => {
         class Service {}
-        injectableClass(Service)
         const container = new Container()
         container.register(Service)
 
@@ -189,7 +174,6 @@ describe("resolveOr", () => {
         class Service {
             readonly kind = "service"
         }
-        injectableClass(Service)
         const container = new Container()
         container.register(Service)
 
@@ -297,7 +281,6 @@ describe("resolveAll", () => {
                 built.push("built")
             }
         }
-        injectableClass(Service)
         const TOKEN = Symbol("all-instances")
 
         const root = new Container()
@@ -315,7 +298,6 @@ describe("resolveAll", () => {
 
     it("builds a fresh instance per call for a transient declaration", () => {
         class Service {}
-        injectableClass(Service)
         const TOKEN = Symbol("all-transient")
 
         const container = new Container()
@@ -329,23 +311,20 @@ describe("resolveAll", () => {
     })
 })
 
-// @InjectAll and resolveAll are one semantics
+// injectAll and resolveAll are one semantics
 // ========================================
 //
-// The two multi-injection paths must not disagree — the same token reached through a constructor and
-// through the container has to yield the same set, or "all the plugins" means one thing in a service and
-// another in a hook. `InjectAll` therefore hardcodes `{ chained: true }` to match `resolveAll`; inversify's
-// `multiInject` defaults to UNCHAINED, and that default is exactly what diverges once a token is declared
-// in both a module and an ancestor. These tests assert the two paths against EACH OTHER, so a regression on
-// either side fails here rather than quietly splitting the semantics in two.
+// The two multi-injection paths must not disagree — the same token reached from inside a construction
+// frame and through the container has to yield the same set, or "all the plugins" means one thing in a
+// service and another in a hook. `injectAll` and `resolveAll` share a default of "chained". These tests
+// assert the two paths against EACH OTHER, so a regression on either side fails here rather than quietly
+// splitting the semantics in two.
 
-describe("@InjectAll", () => {
+describe("injectAll", () => {
     function collector(token: symbol): Constructor<{ plugins: string[] }> {
         const Collector = class {
-            constructor(readonly plugins: string[]) {}
+            readonly plugins = injectAll<string>(token)
         }
-        decorate(Injectable(), Collector)
-        decorate(InjectAll(token) as ParameterDecorator, Collector, 0)
 
         return Collector as unknown as Constructor<{ plugins: string[] }>
     }
@@ -398,7 +377,6 @@ describe("@InjectAll", () => {
     it("injects the very instances resolveAll returns", () => {
         const TOKEN = Symbol("plugin-instances")
         class Plugin {}
-        injectableClass(Plugin)
 
         const root = new Container()
         root.register({ provide: TOKEN, useClass: Plugin, multi: true })

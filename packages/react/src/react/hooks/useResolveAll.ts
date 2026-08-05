@@ -1,6 +1,6 @@
 import { useLazyRef } from "@luminelabs/react-toolkit"
 
-import type { Container, InjectionToken, ResolveAllMode } from "../../container/index.js"
+import type { Container, InjectionToken, ResolveAllMode } from "@remodulo/container"
 import { useContainer } from "./useModuleContext.js"
 
 // Types

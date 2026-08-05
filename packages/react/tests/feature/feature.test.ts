@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import type { Provider } from "../../src/container/index.js"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import { createFeature, type ProviderInput } from "../../src/core/feature/feature.js"
 import { makeApp, plain, tracked } from "../setup/helpers.js"
 

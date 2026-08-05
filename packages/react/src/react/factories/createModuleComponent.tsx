@@ -1,6 +1,6 @@
 import type { ComponentType, JSX, ReactNode } from "react"
 
-import type { InjectionToken } from "../../container/index.js"
+import type { InjectionToken } from "@remodulo/container"
 import type { PropsAdapter, PropsRef } from "../../core/providers/props-ref/props-ref.provider.js"
 import { ModuleProvider, type ModuleProviderProps } from "../providers/ModuleProvider.js"
 import { usePropsRef, type UsePropsRefOptions } from "../hooks/usePropsRef.js"

@@ -1,12 +1,11 @@
-import { decorate, Injectable } from "../../src/container/decorators.js"
 import { App, Module, type ModuleParams } from "../../src/core/module/module.js"
 import type { Provider } from "../../src/types.js"
 
 // Shared test helpers
 // ========================================
 //
-// vitest transforms with esbuild, which emits no `design:paramtypes`. Decorators must therefore be applied
-// through `decorate()`, and constructor injection needs an explicit `Inject(TOKEN)` per parameter.
+// No decorators and no metadata emit: a service is a plain class, and every dependency it needs it reads
+// with `inject()` from the kernel's construction frame.
 
 export const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -43,7 +42,7 @@ export type TrackedOptions = {
 export type Tracked = Provider & { counts: HookCounts }
 
 /**
- * An injectable class that appends `<label>:<phase>` to `log` for every lifecycle hook and counts them.
+ * A class that appends `<label>:<phase>` to `log` for every lifecycle hook and counts them.
  * Returned as a Provider so it can be used as a bare constructor-shorthand or as `useClass`.
  */
 export function tracked(log: string[], label: string, options: TrackedOptions = {}): Tracked {
@@ -82,16 +81,14 @@ export function tracked(log: string[], label: string, options: TrackedOptions = 
         }
     }
 
-    decorate(Injectable(), Service)
     return Service as unknown as Tracked
 }
 
-/** An injectable class with no lifecycle hooks. */
+/** A class with no lifecycle hooks. */
 export function plain(label = "plain"): Provider {
     const Service = class {
         readonly label = label
     }
-    decorate(Injectable(), Service)
     return Service as unknown as Provider
 }
 

@@ -2,7 +2,6 @@ import { act, render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { useState, type ReactNode } from "react"
 
-import { decorate, Injectable } from "../../src/container/decorators.js"
 import { App } from "../../src/core/module/module.js"
 import { AppProvider } from "../../src/react/providers/AppProvider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
@@ -65,7 +64,6 @@ function generational(log: string[], label: string): Generational {
         }
     }
 
-    decorate(Injectable(), Service)
     return { provider: Service as unknown as Provider, lives }
 }
 

@@ -2,7 +2,7 @@
 dist
 dist_ssr
 node_modules
-build
+/build
 cache
 
 # Logs
@@ -21,6 +21,9 @@ lerna-debug.log*
 coverage
 .nyc_output
 scratch
+
+# Packed tarballs the consumer harness installs from, rebuilt on every run
+packages/react/tests/consumers/.tarballs
 
 # IDEs and editors
 .idea

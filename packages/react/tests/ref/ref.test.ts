@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { Container } from "../../src/container/index.js"
+import { Container } from "@remodulo/container"
 import { Ref, RefMap } from "../../src/core/providers/ref/ref.provider.js"
 
 // Element holders
@@ -145,9 +145,9 @@ describe("RefMap", () => {
 // Subclass-as-token
 // ========================================
 //
-// One element per token, with no token ceremony: the subclass IS the token. And no `@Injectable()` — a
-// zero-dependency class needs no constructor metadata, so inversify 8 constructs it as-is. (Measured; the
-// decorator is still required the moment a subclass takes constructor parameters.)
+// One element per token, with no token ceremony: the subclass IS the token. Nothing to mark it with either:
+// the kernel constructs a plain class as-is, and a subclass that needs dependencies reads them with
+// `inject()` from its own construction frame.
 
 describe("subclass as token", () => {
     class InputRef extends Ref<Element> {}

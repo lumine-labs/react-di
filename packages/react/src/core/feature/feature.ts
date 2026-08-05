@@ -1,4 +1,4 @@
-import type { Provider } from "../../container/index.js"
+import type { Provider } from "../provider/provider.types.js"
 
 // Feature
 // ========================================

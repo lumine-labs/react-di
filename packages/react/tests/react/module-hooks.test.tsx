@@ -2,7 +2,7 @@ import { render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import type { ReactNode } from "react"
 
-import type { Container } from "../../src/container/index.js"
+import type { Container } from "@remodulo/container"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useContainer } from "../../src/react/hooks/useModuleContext.js"
 import { Root } from "../setup/react.js"

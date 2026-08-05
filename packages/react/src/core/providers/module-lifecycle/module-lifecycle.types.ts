@@ -1,4 +1,4 @@
-import type { Container } from "../../../container/index.js"
+import type { Container } from "@remodulo/container"
 
 // Lifecycle hooks for providers
 // ========================================

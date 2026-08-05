@@ -1,23 +1,14 @@
-import { injectable as inversifyInjectable } from "inversify"
 import { describe, expect, it, vi } from "vitest"
 
-import { Container, Inject, Injectable, Scope, decorate } from "../../src/container/index.js"
-import type { Constructor, Provider } from "../../src/container/index.js"
+import { Container, Scope, inject, injectOptional } from "@remodulo/container"
+import type { Provider } from "../../src/core/provider/provider.types.js"
+import { makeApp } from "../setup/helpers.js"
 
 // The five provider shapes and the two scopes.
 // ========================================
 //
-// vitest transforms with esbuild, which emits no `design:paramtypes`: every class goes through
-// `decorate(Injectable(), …)` and every constructor parameter through `decorate(Inject(TOKEN), …, i)`.
-
-function injectableClass<T extends Constructor>(target: T): T {
-    decorate(Injectable(), target)
-    return target
-}
-
-function injectParam(target: Constructor, token: Parameters<typeof Inject>[0], index: number): void {
-    decorate(Inject(token) as ParameterDecorator, target, index)
-}
+// No decorators and no metadata emit: a class is registered as it is written, and every dependency —
+// constructor parameter or factory argument — is read with `inject()` from the construction frame.
 
 describe("provider shapes", () => {
     it("registers a bare constructor as itself, singleton by default", () => {
@@ -27,7 +18,6 @@ describe("provider shapes", () => {
                 built.push("Service")
             }
         }
-        injectableClass(Service)
 
         const container = new Container()
         container.register(Service)
@@ -44,7 +34,6 @@ describe("provider shapes", () => {
         class Impl {
             readonly kind = "impl"
         }
-        injectableClass(Impl)
         const TOKEN = Symbol("service")
 
         const container = new Container()
@@ -97,11 +86,10 @@ describe("provider shapes", () => {
         expect(factory).toHaveBeenCalledTimes(1)
     })
 
-    it("resolves useFactory `inject` dependencies in declaration order", () => {
+    it("resolves a factory's own `inject()` reads in declaration order", () => {
         class Dependency {
             readonly kind = "dependency"
         }
-        injectableClass(Dependency)
         const NAME = Symbol("name")
         const TOKEN = Symbol("factory-with-deps")
 
@@ -111,7 +99,7 @@ describe("provider shapes", () => {
         container.register([
             { provide: NAME, useValue: "alpha" },
             Dependency,
-            { provide: TOKEN, useFactory: factory, inject: [NAME, Dependency] },
+            { provide: TOKEN, useFactory: () => factory(inject(NAME), inject(Dependency)) },
         ])
 
         const resolved = container.resolve<{ name: string; dependency: Dependency }>(TOKEN)
@@ -122,19 +110,19 @@ describe("provider shapes", () => {
         expect(factory.mock.calls[0]?.[0]).toBe("alpha")
     })
 
-    it("passes undefined for a missing `{ token, optional: true }` dependency", () => {
+    it("passes undefined for a missing `injectOptional` dependency", () => {
         const MISSING = Symbol("missing")
         const TOKEN = Symbol("optional-factory")
         const factory = vi.fn((value: unknown) => ({ value }))
 
         const container = new Container()
-        container.register({ provide: TOKEN, useFactory: factory, inject: [{ token: MISSING, optional: true }] })
+        container.register({ provide: TOKEN, useFactory: () => factory(injectOptional(MISSING)) })
 
         expect(container.resolve<{ value: unknown }>(TOKEN)).toEqual({ value: undefined })
         expect(factory).toHaveBeenCalledWith(undefined)
     })
 
-    it("passes the real value for a present `{ token, optional: true }` dependency", () => {
+    it("passes the real value for a present `injectOptional` dependency", () => {
         const PRESENT = Symbol("present")
         const TOKEN = Symbol("optional-factory-hit")
 
@@ -143,8 +131,7 @@ describe("provider shapes", () => {
             { provide: PRESENT, useValue: "here" },
             {
                 provide: TOKEN,
-                useFactory: (value: unknown) => ({ value }),
-                inject: [{ token: PRESENT, optional: true }],
+                useFactory: () => ({ value: injectOptional(PRESENT) }),
             },
         ])
 
@@ -156,7 +143,7 @@ describe("provider shapes", () => {
         const TOKEN = Symbol("strict-factory")
 
         const container = new Container()
-        container.register({ provide: TOKEN, useFactory: (value: unknown) => value, inject: [MISSING] })
+        container.register({ provide: TOKEN, useFactory: () => inject(MISSING) })
 
         expect(() => container.resolve(TOKEN)).toThrow(/required-missing/)
     })
@@ -165,7 +152,6 @@ describe("provider shapes", () => {
         class Service {
             readonly kind = "service"
         }
-        injectableClass(Service)
         const ALIAS = Symbol("alias")
 
         const container = new Container()
@@ -188,17 +174,14 @@ describe("provider shapes", () => {
         expect(container.resolve(ALIAS)).toBe(value)
     })
 
-    it("injects constructor parameters declared with Inject", () => {
+    it("injects a field initializer that reads the construction frame", () => {
         class Dependency {
             readonly kind = "dependency"
         }
-        injectableClass(Dependency)
 
         class Consumer {
-            constructor(readonly dependency: Dependency) {}
+            readonly dependency = inject(Dependency)
         }
-        injectableClass(Consumer)
-        injectParam(Consumer, Dependency, 0)
 
         const container = new Container()
         container.register([Dependency, Consumer])
@@ -209,8 +192,6 @@ describe("provider shapes", () => {
     it("registers an array of providers in one call", () => {
         class A {}
         class B {}
-        injectableClass(A)
-        injectableClass(B)
 
         const container = new Container()
         container.register([A, { provide: B, useClass: B }])
@@ -228,7 +209,6 @@ describe("useClass without `provide`", () => {
                 built.push("Service")
             }
         }
-        injectableClass(Service)
 
         const container = new Container()
         container.register({ useClass: Service })
@@ -248,7 +228,6 @@ describe("useClass without `provide`", () => {
                 built.push("built")
             }
         }
-        injectableClass(Service)
 
         const container = new Container()
         container.register({ useClass: Service, scope: Scope.Transient })
@@ -262,7 +241,6 @@ describe("useClass without `provide`", () => {
 
     it("honours Scope.Singleton written out explicitly", () => {
         class Service {}
-        injectableClass(Service)
 
         const container = new Container()
         container.register({ useClass: Service, scope: Scope.Singleton })
@@ -272,7 +250,6 @@ describe("useClass without `provide`", () => {
 
     it("binds nothing but the class — no second token appears", () => {
         class Service {}
-        injectableClass(Service)
         const OTHER = Symbol("other")
 
         const container = new Container()
@@ -289,14 +266,11 @@ describe("useClass without `provide`", () => {
                 built.push("built")
             }
         }
-        injectableClass(Service)
 
-        // `lazy` is a module-level instruction — the container has no eager pass, so the two forms must
-        // produce indistinguishable bindings here.
-        const shorthand = new Container()
-        shorthand.register({ useClass: Service, lazy: true })
-        const longhand = new Container()
-        longhand.register({ provide: Service, useClass: Service, lazy: true })
+        // `lazy` is a module-level instruction — the kernel has no such key, so the claim is made at the
+        // layer that owns it, and both forms must defer construction past the eager pass alike.
+        const shorthand = makeApp({ providers: [{ useClass: Service, lazy: true }] }).container
+        const longhand = makeApp({ providers: [{ provide: Service, useClass: Service, lazy: true }] }).container
 
         expect(built).toEqual([])
 
@@ -312,7 +286,6 @@ describe("useClass without `provide`", () => {
 
     it("takes part in a fork the way any class binding does", () => {
         class Service {}
-        injectableClass(Service)
 
         const parent = new Container()
         parent.register({ useClass: Service })
@@ -324,7 +297,6 @@ describe("useClass without `provide`", () => {
 
     it("is observable, like every other own binding", () => {
         class Service {}
-        injectableClass(Service)
         const seen: unknown[] = []
 
         const container = new Container()
@@ -343,7 +315,6 @@ describe("scopes", () => {
                 built.push(built.length)
             }
         }
-        injectableClass(Service)
         const TOKEN = Symbol("scoped")
 
         const container = new Container()
@@ -360,7 +331,6 @@ describe("scopes", () => {
                 built.push("built")
             }
         }
-        injectableClass(Service)
         const TOKEN = Symbol("transient")
 
         const container = new Container()
@@ -377,7 +347,6 @@ describe("scopes", () => {
 
     it("honours Scope.Singleton written out explicitly", () => {
         class Service {}
-        injectableClass(Service)
         const TOKEN = Symbol("explicit-singleton")
 
         const container = new Container()
@@ -415,7 +384,6 @@ describe("scopes", () => {
                 built.push("built")
             }
         }
-        injectableClass(Service)
 
         const root = new Container()
         root.register(Service)
@@ -435,8 +403,6 @@ describe("scopes", () => {
     it("accepts both the member and the string literal for every scope", () => {
         class Member {}
         class Literal {}
-        injectableClass(Member)
-        injectableClass(Literal)
 
         const container = new Container()
         container.register([
@@ -449,27 +415,6 @@ describe("scopes", () => {
         ])
     })
 
-    // Our `Injectable` is parameterless, so no consumer can write `@Injectable("Transient")` — but the raw
-    // inversify decorator is one import away, and this pins what happens when someone smuggles it in.
-    // `register()` sets the binding scope on EVERY path (`#scoped`, defaulting to Singleton), and an
-    // explicit binding scope overrides the decorator's default, so the decorator channel is inert: the
-    // registration decides, always. That is why dropping the parameter costs nothing — it never did
-    // anything — and why the class stays free to be a singleton here and transient in the next module.
-    it("ignores a scope smuggled in through the raw inversify decorator", () => {
-        const built: string[] = []
-        class Service {
-            constructor() {
-                built.push("built")
-            }
-        }
-        decorate(inversifyInjectable("Transient"), Service)
-
-        const container = new Container()
-        container.register({ useClass: Service })
-
-        expect(container.resolve(Service)).toBe(container.resolve(Service))
-        expect(built).toHaveLength(1)
-    })
 })
 
 describe("invalid providers", () => {
@@ -549,7 +494,6 @@ describe("invalid providers", () => {
 describe("mixed implementation keys", () => {
     it("rejects an explicit-undefined sibling key with a message naming both keys", () => {
         class Service {}
-        injectableClass(Service)
         const container = new Container()
 
         expect(() => container.register({ useClass: Service, useFactory: undefined } as Provider)).toThrow(
@@ -568,7 +512,6 @@ describe("mixed implementation keys", () => {
 
     it("counts every key present, and lists them in USE_KEYS order", () => {
         class Service {}
-        injectableClass(Service)
         const container = new Container()
 
         expect(() =>
@@ -620,7 +563,6 @@ describe("a token-less form without `provide`", () => {
 
     it("rejects useExisting", () => {
         class Service {}
-        injectableClass(Service)
         const container = new Container()
         container.register(Service)
 
@@ -646,7 +588,6 @@ describe("a token-less form without `provide`", () => {
 
     it("still allows useClass to omit it — that is the one form with a token to derive", () => {
         class Service {}
-        injectableClass(Service)
         const container = new Container()
 
         expect(() => container.register({ useClass: Service })).not.toThrow()

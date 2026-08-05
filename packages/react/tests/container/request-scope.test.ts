@@ -1,25 +1,12 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { Container, Inject, Injectable, Scope, decorate } from "../../src/container/index.js"
-import type { Constructor } from "../../src/container/index.js"
+import { Container, Scope, inject } from "@remodulo/container"
 
 // Request scope — one instance per resolution graph.
 // ========================================
 //
-// vitest transforms with esbuild, which emits no `design:paramtypes`: every class goes through
-// `decorate(Injectable(), …)` and every constructor parameter through `decorate(Inject(TOKEN), …, i)`.
-//
-// Probed in scratch/probe-request-1-inversify.ts (substrate) and
-// scratch/probe-request-3-scope-treatment.ts (through this container).
-
-function injectableClass<T extends Constructor>(target: T): T {
-    decorate(Injectable(), target)
-    return target
-}
-
-function injectParam(target: Constructor, token: Parameters<typeof Inject>[0], index: number): void {
-    decorate(Inject(token) as ParameterDecorator, target, index)
-}
+// A dependency is read with `inject()` in a field initializer, which runs inside the kernel construction
+// frame — so declaration order is read order, exactly as constructor-parameter order used to be.
 
 const DEP = Symbol("DEP")
 const ROOT = Symbol("ROOT")
@@ -31,28 +18,16 @@ class Dep {
     readonly serial = ++built
 }
 class Left {
-    constructor(readonly dep: Dep) {}
+    readonly dep = inject<Dep>(DEP)
 }
 class Right {
-    constructor(readonly dep: Dep) {}
+    readonly dep = inject<Dep>(DEP)
 }
 class Root {
-    constructor(
-        readonly left: Left,
-        readonly right: Right,
-        readonly dep: Dep
-    ) {}
+    readonly left = inject(Left)
+    readonly right = inject(Right)
+    readonly dep = inject<Dep>(DEP)
 }
-
-injectableClass(Dep)
-injectableClass(Left)
-injectableClass(Right)
-injectableClass(Root)
-injectParam(Left, DEP, 0)
-injectParam(Right, DEP, 0)
-injectParam(Root, Left, 0)
-injectParam(Root, Right, 1)
-injectParam(Root, DEP, 2)
 
 /** A container whose whole graph is transient except the request-scoped `DEP` every level asks for. */
 function graphContainer(): Container {
@@ -97,24 +72,15 @@ describe("sharing", () => {
         const TOP = Symbol("TOP")
 
         class HolderA {
-            constructor(readonly made: unknown) {}
+            readonly made = inject<unknown>(DEP)
         }
         class HolderB {
-            constructor(readonly made: unknown) {}
+            readonly made = inject<unknown>(DEP)
         }
         class Top {
-            constructor(
-                readonly a: HolderA,
-                readonly b: HolderB
-            ) {}
+            readonly a = inject<HolderA>(HOLDER_A)
+            readonly b = inject<HolderB>(HOLDER_B)
         }
-        injectableClass(HolderA)
-        injectableClass(HolderB)
-        injectableClass(Top)
-        injectParam(HolderA, DEP, 0)
-        injectParam(HolderB, DEP, 0)
-        injectParam(Top, HOLDER_A, 0)
-        injectParam(Top, HOLDER_B, 1)
 
         const container = new Container()
         container.register([
@@ -142,89 +108,72 @@ describe("sharing", () => {
     })
 })
 
-// THE FACTORY BOUNDARY — a MEASURED limitation, not a decision.
+// THE FACTORY BOUNDARY — closed by the kernel.
 // ========================================
 //
-// MEASURED, inversify 8.2.3 (scratch/probe-request-2-factory-boundary.ts): a `useFactory` dependency is
-// routed by `Container#resolveDependencies`, which re-enters through `resolve`/`resolveAll` — and the
-// substrate seeds every entry with an empty request cache, so the read opens its OWN graph. Routing the
-// same read through inversify's `ResolutionContext` instead does not help: that context's `get` IS the
-// container's public `get`. This suite pins the behaviour as it is; fixing it is upstream work.
+// Under inversify a useFactory dependency was routed by re-entering the public `resolve`, which seeded a
+// fresh request cache and so opened the factory own graph. The kernel has no routing layer: a factory
+// reads with `inject()` from inside the frame the caller already opened, so the caller graph IS the
+// factory graph. These two tests are the inverted pins for that.
 
 describe("the factory boundary", () => {
-    it("does not share the caller's graph with a factory's injected dependency", () => {
+    it("shares the caller graph with a factory injected dependency", () => {
         const FACTORY = Symbol("FACTORY")
         const TOP = Symbol("TOP")
 
         class ClassSide {
-            constructor(readonly dep: Dep) {}
+            readonly dep = inject<Dep>(DEP)
         }
         class Top {
-            constructor(
-                readonly viaClass: ClassSide,
-                readonly viaFactory: { dep: Dep }
-            ) {}
+            readonly viaClass = inject(ClassSide)
+            readonly viaFactory = inject<{ dep: Dep }>(FACTORY)
         }
-        injectableClass(ClassSide)
-        injectableClass(Top)
-        injectParam(ClassSide, DEP, 0)
-        injectParam(Top, ClassSide, 0)
-        injectParam(Top, FACTORY, 1)
 
         const container = new Container()
         container.register([
             { provide: DEP, useClass: Dep, scope: Scope.Request },
             { provide: ClassSide, useClass: ClassSide, scope: Scope.Transient },
-            { provide: FACTORY, useFactory: (dep: Dep) => ({ dep }), inject: [DEP], scope: Scope.Transient },
+            { provide: FACTORY, useFactory: () => ({ dep: inject<Dep>(DEP) }), scope: Scope.Transient },
             { provide: TOP, useClass: Top, scope: Scope.Transient },
         ])
 
         const top = container.resolve<Top>(TOP)
 
-        expect(top.viaFactory.dep).not.toBe(top.viaClass.dep)
+        expect(top.viaFactory.dep).toBe(top.viaClass.dep)
     })
 
-    it("gives two factories in one graph two instances, one graph each", () => {
+    it("gives two factories in one graph the one shared instance", () => {
         const FIRST = Symbol("FIRST")
         const SECOND = Symbol("SECOND")
         const TOP = Symbol("TOP")
 
         class Top {
-            constructor(
-                readonly first: { dep: Dep },
-                readonly second: { dep: Dep }
-            ) {}
+            readonly first = inject<{ dep: Dep }>(FIRST)
+            readonly second = inject<{ dep: Dep }>(SECOND)
         }
-        injectableClass(Top)
-        injectParam(Top, FIRST, 0)
-        injectParam(Top, SECOND, 1)
 
         const container = new Container()
         container.register([
             { provide: DEP, useClass: Dep, scope: Scope.Request },
-            { provide: FIRST, useFactory: (dep: Dep) => ({ dep }), inject: [DEP], scope: Scope.Transient },
-            { provide: SECOND, useFactory: (dep: Dep) => ({ dep }), inject: [DEP], scope: Scope.Transient },
+            { provide: FIRST, useFactory: () => ({ dep: inject<Dep>(DEP) }), scope: Scope.Transient },
+            { provide: SECOND, useFactory: () => ({ dep: inject<Dep>(DEP) }), scope: Scope.Transient },
             { provide: TOP, useClass: Top, scope: Scope.Transient },
         ])
 
         const top = container.resolve<Top>(TOP)
 
-        expect(top.first.dep).not.toBe(top.second.dep)
+        expect(top.first.dep).toBe(top.second.dep)
     })
 })
 
 describe("collections", () => {
     it("shares one instance across every member of a single resolveAll", () => {
         class MemberA {
-            constructor(readonly dep: Dep) {}
+            readonly dep = inject<Dep>(DEP)
         }
         class MemberB {
-            constructor(readonly dep: Dep) {}
+            readonly dep = inject<Dep>(DEP)
         }
-        injectableClass(MemberA)
-        injectableClass(MemberB)
-        injectParam(MemberA, DEP, 0)
-        injectParam(MemberB, DEP, 0)
 
         const container = new Container()
         container.register([
@@ -242,7 +191,6 @@ describe("collections", () => {
 
     it("rebuilds a request-scoped member per read, like a transient one", () => {
         class Member {}
-        injectableClass(Member)
 
         const container = new Container()
         container.register([
@@ -262,9 +210,6 @@ describe("collections", () => {
         class Singleton {}
         class Requested {}
         class Transient {}
-        injectableClass(Singleton)
-        injectableClass(Requested)
-        injectableClass(Transient)
 
         const container = new Container()
         container.register([

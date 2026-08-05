@@ -2,7 +2,7 @@ import { act, render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { useState, type ReactNode } from "react"
 
-import { Container } from "../../src/container/index.js"
+import { Container } from "@remodulo/container"
 import { App, Module } from "../../src/core/module/module.js"
 import { AppProvider } from "../../src/react/providers/AppProvider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"

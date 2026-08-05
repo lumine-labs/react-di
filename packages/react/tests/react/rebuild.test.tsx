@@ -2,7 +2,7 @@ import { act, render } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import { useState, type ReactNode } from "react"
 
-import { Container } from "../../src/container/index.js"
+import { Container } from "@remodulo/container"
 import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useContainer, useModuleContext, useModuleRebuild } from "../../src/react/hooks/useModuleContext.js"

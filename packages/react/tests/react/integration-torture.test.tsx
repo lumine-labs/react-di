@@ -2,8 +2,7 @@ import { act, render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { Component, Suspense, createContext, use, useContext, useState, type ReactNode } from "react"
 
-import { decorate, Injectable } from "../../src/container/index.js"
-import type { Provider } from "../../src/container/index.js"
+import type { Provider } from "../../src/core/provider/provider.types.js"
 import type { Module } from "../../src/core/module/module.js"
 import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
@@ -69,7 +68,6 @@ function genTracker(log: string[] = [], label = "S"): Tracker {
         }
     }
 
-    decorate(Injectable(), Service)
     return { provider: Service as unknown as Provider, generations }
 }
 
@@ -873,7 +871,6 @@ describe("error boundaries around a module", () => {
                 throw new Error("provider init boom")
             }
         }
-        decorate(Injectable(), Bad)
 
         const { getByTestId } = render(
             <Root>
