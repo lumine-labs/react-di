@@ -1,14 +1,13 @@
 # @remodulo/container
 
-**The dependency injection container behind [Remodulo](https://lumine-labs.github.io/remodulo/).**
+**A lightweight Dependency Injection container for modern TypeScript and JavaScript.**
 
-Zero runtime dependencies. No decorators, no `reflect-metadata`, no compiler flags — plain classes and
-ordinary function calls.
+No decorators. No `reflect-metadata`. No compiler transforms. Just plain classes and ordinary function calls.
 
-> ⚠️ **Experimental / internal use.**
+> ⚠️ **Experimental / internal use**
 >
-> Primarily intended for personal and internal use. It may change, break, or be restructured at any time.
-> Don't rely on it for public projects unless you're prepared to maintain your own fork.
+> This package is primarily developed as the foundation of Remodulo and is not yet considered stable.
+> Breaking changes may happen until the first stable release.
 
 ## Install
 
@@ -31,37 +30,49 @@ class Service {
     private readonly logger = inject(Logger)
 
     greet(): void {
-        this.logger.log("hello")
+        this.logger.log("Hello!")
     }
 }
 
 const container = new Container()
-container.register([Logger, Service])
-const service = container.resolve(Service)
-service.greet()
+
+container.register([
+    Logger,
+    Service,
+])
+
+container.resolve(Service).greet()
 ```
 
-## Ambient injection
+## Features
 
-`inject()` reads an **ambient construction frame** — a synchronous reference to the container currently
-building. It works in a constructor body, in a field initializer and inside a `useFactory`, which is why no
-decorator is needed to describe a dependency: the call site *is* the declaration.
+- 🚫 No decorators or `reflect-metadata`
+- 📦 Zero runtime dependencies
+- 🌳 Hierarchical containers via `fork()`
+- 🔁 Singleton, transient and request scopes
+- 📚 Multi-bindings (`injectAll`, `resolveAll`)
+- 🏭 Class, value, factory and alias providers
+- ⚡ Ambient `inject()` API for classes and factories
+- 🛡️ Strict registration validation with typed errors
 
-Four functions read the frame: `inject`, `injectOptional`, `injectAll` and `injectContainer`.
-`runInInjectionContext` opens a frame by hand, outside a resolution.
+## Injection model
 
-## What's in the box
+`inject()` works by reading the **current construction frame**.
 
-- **Providers** — `useClass`, `useValue`, `useFactory`, `useExisting`, plus the bare-constructor shorthand.
-- **Scopes** — `singleton`, `transient`, `request`.
-- **Collections** — `multi: true` registrations, read back with `injectAll` / `resolveAll`.
-- **Modes** — every read is parameterized over where it looks: `self`, `nearest`, and `chained` for
-  collections.
-- **Typed errors** — `RegistrationError`, `ResolutionError`, `CycleError` and `InjectionContextError`, each
-  carrying a stable error code.
-- **Hierarchy** — `fork()` a child container; registrations and lookups follow the chain.
+Whenever the container constructs an object, it exposes itself as the active injection context. That allows dependencies to be declared directly where they're used:
 
-## [Documentation](https://lumine-labs.github.io/remodulo/)
+```ts
+class Service {
+    private readonly logger = inject(Logger)
+}
+```
 
-For the React integration — modules as ownership boundaries, lifecycle bound to the component tree — see
-[`@remodulo/react`](https://www.npmjs.com/package/@remodulo/react).
+The same API also works inside factory providers.
+
+## Documentation
+
+See the full documentation at:
+
+https://lumine-labs.github.io/remodulo/
+
+For the React integration built on top of this container, see **@remodulo/react**.
