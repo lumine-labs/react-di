@@ -158,18 +158,20 @@ describe("lazy timing", () => {
             providers: [
                 {
                     provide: EAGER,
-                    useFactory: (owner: Module) => ({
-                        onModuleInit: () => {
-                            log.push("E:init")
-                            // Resolved mid-init: the init phase walks the participant set live, so the
-                            // arrival is reached by the same pass that triggered it.
-                            owner.container.resolve(LAZY)
-                        },
-                        onModuleMount: () => log.push("E:mount"),
-                        onModuleUnmount: () => log.push("E:unmount"),
-                        onModuleDestroy: () => log.push("E:destroy"),
-                    }),
-                    inject: [Module],
+                    useFactory: () => {
+                        const owner = inject(Module)
+                        return {
+                            onModuleInit: () => {
+                                log.push("E:init")
+                                // Resolved mid-init: the init phase walks the participant set live, so the
+                                // arrival is reached by the same pass that triggered it.
+                                owner.container.resolve(LAZY)
+                            },
+                            onModuleMount: () => log.push("E:mount"),
+                            onModuleUnmount: () => log.push("E:unmount"),
+                            onModuleDestroy: () => log.push("E:destroy"),
+                        }
+                    },
                 },
                 { provide: LAZY, useClass: lazyService, lazy: true } as Provider,
             ],

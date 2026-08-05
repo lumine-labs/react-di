@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { Scope } from "@remodulo/container"
+import { Container, Scope } from "@remodulo/container"
+import { LAZY_METADATA_KEY, registerProviders } from "../../src/core/provider/provider.js"
 import type { Provider } from "../../src/core/provider/provider.types.js"
 import { makeApp, makeChild, phase, tracked } from "../setup/helpers.js"
 
@@ -224,5 +225,72 @@ describe("lazy", () => {
         })
 
         expect(log).toEqual(["E:ctor", "E:init"])
+    })
+})
+
+// The metadata channel `lazy` travels on.
+// ========================================
+//
+// `lazy` is react's one key, and the kernel's metadata bag is where it lands. The bag is not react's to
+// own, though: a provider may declare metadata of its own, and it survives the translation. React wins a
+// collision on exactly one name — the one it wrote.
+
+describe("lazy metadata", () => {
+    const TOKEN = Symbol.for("tests.lazy.metadata")
+
+    function metadataOf(provider: Provider) {
+        const container = new Container()
+        registerProviders(container, [provider])
+
+        return container.entry(TOKEN)?.metadata
+    }
+
+    it("merges react's key into the bag the provider declared", () => {
+        expect(
+            metadataOf({ provide: TOKEN, useFactory: () => 1, lazy: true, metadata: { tag: "a", tier: 2 } })
+        ).toEqual({ tag: "a", tier: 2, [LAZY_METADATA_KEY]: true })
+    })
+
+    it("wins its own name on a collision, and leaves every other declared key standing", () => {
+        expect(
+            metadataOf({
+                provide: TOKEN,
+                useFactory: () => 1,
+                lazy: true,
+                metadata: { [LAZY_METADATA_KEY]: false, tag: "a" },
+            })
+        ).toEqual({ [LAZY_METADATA_KEY]: true, tag: "a" })
+    })
+
+    it("passes a declared bag through untouched when there is no `lazy` to fold in", () => {
+        expect(metadataOf({ provide: TOKEN, useFactory: () => 1, metadata: { tag: "a" } })).toEqual({ tag: "a" })
+    })
+
+    it("registers no bag at all when the provider declares neither key", () => {
+        expect(metadataOf({ provide: TOKEN, useFactory: () => 1 })).toBeUndefined()
+    })
+
+    it("hands the kernel the very same provider object when neither key needs translating", () => {
+        const provider: Provider = { provide: TOKEN, useFactory: () => 1, metadata: { tag: "a" } }
+        const container = new Container()
+        const register = vi.spyOn(container, "register")
+
+        registerProviders(container, [provider])
+
+        expect(register).toHaveBeenCalledTimes(1)
+        expect(register.mock.calls[0]?.[0]).toBe(provider)
+    })
+
+    it("still defers the eager pass when the declared bag rides along", () => {
+        const log: string[] = []
+        const service = tracked(log, "L")
+        const module = makeApp({
+            providers: [{ provide: service, useClass: service, lazy: true, metadata: { tag: "a" } } as Provider],
+        })
+
+        expect(log).toEqual([])
+
+        module.container.resolve(service as never)
+        expect(log).toEqual(["L:ctor", "L:init"])
     })
 })

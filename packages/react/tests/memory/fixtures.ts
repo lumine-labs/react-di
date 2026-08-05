@@ -1,4 +1,4 @@
-import { Scope } from "@remodulo/container"
+import { Scope, inject } from "@remodulo/container"
 import type { Provider } from "../../src/core/provider/provider.types.js"
 import type { Module } from "../../src/core/module/module.js"
 import { PropsRef } from "../../src/core/providers/props-ref/props-ref.provider.js"
@@ -66,8 +66,7 @@ export function makeProviders(tracker: LeakTracker, propsRef?: PropsRef | null):
         },
         {
             provide: LAZY,
-            useFactory: (eager: EagerService) => tracker.track("LazyService", new LazyService(eager)),
-            inject: [EAGER],
+            useFactory: () => tracker.track("LazyService", new LazyService(inject<EagerService>(EAGER))),
             lazy: true,
         },
         { provide: ALIAS, useExisting: EAGER },

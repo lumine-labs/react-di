@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { Scope } from "@remodulo/container"
+import { Scope, injectAll } from "@remodulo/container"
 import type { Provider } from "../../src/core/provider/provider.types.js"
 import { makeApp, makeChild, phase, tracked } from "../setup/helpers.js"
 
@@ -371,17 +371,16 @@ describe("transient members", () => {
 })
 
 describe("members a factory injected", () => {
-    // A factory reaching a collection through `inject: [{ token, multi: true }]` performs the same
-    // `resolveAll` the module's eager pass performs. Adoption follows the BINDING, not the caller, so who
-    // triggered the construction changes nothing: singletons are adopted once, transients never.
+    // A factory reaching a collection through `injectAll()` in its body performs the same `resolveAll` the
+    // module's eager pass performs. Adoption follows the BINDING, not the caller, so who triggered the
+    // construction changes nothing: singletons are adopted once, transients never.
 
     const HOST = Symbol("HOST")
 
     const host = (): Provider =>
         ({
             provide: HOST,
-            useFactory: (plugins: unknown[]) => ({ plugins }),
-            inject: [{ token: PLUGINS, multi: true }],
+            useFactory: () => ({ plugins: injectAll(PLUGINS) }),
         }) as Provider
 
     it("adopts the members the factory itself caused to be constructed", async () => {

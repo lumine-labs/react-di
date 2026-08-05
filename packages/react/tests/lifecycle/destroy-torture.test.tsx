@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@testing-library/react"
 import { Component, useState, type ReactNode } from "react"
 
+import { inject } from "@remodulo/container"
 import { Module } from "../../src/core/module/module.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
-import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"
+import { ModuleTraversal } from "../../src/core/providers/module-traversal/module-traversal.provider.js"
 import type { HookCounts } from "../setup/helpers.js"
 import { flush, makeApp, makeChild, tracked } from "../setup/helpers.js"
 import { Root } from "../setup/react.js"
@@ -117,14 +118,14 @@ describe("destroy while still mounted", () => {
             UNMOUNT_SKIPPED,
         ])
 
-        // `#claimSubtree` detaches each node as it claims it, so nothing is reachable from the registry —
-        // the point of doing the claim synchronously before any hook awaits. Every level takes the same
-        // flag reset with it, so no destroyed node anywhere in the subtree still reports itself mounted.
+        // `#claimSubtree` unlinks each node from its parent as it claims it, so nothing is reachable by
+        // traversal — the point of doing the claim synchronously before any hook awaits. Every level takes
+        // the same flag reset with it, so no destroyed node anywhere in the subtree still reports mounted.
         expect([app.claimed, child.claimed, grandchild.claimed]).toEqual([true, true, true])
         expect([app.mounted, child.mounted, grandchild.mounted]).toEqual([false, false, false])
         expect(app.children.size).toBe(0)
         expect(child.children.size).toBe(0)
-        expect(app.container.resolve(ModuleRegistry).descendants()).toEqual([])
+        expect(app.container.resolve(ModuleTraversal).descendants()).toEqual([])
     })
 
     it("detaches a mounted child from a parent that stays alive, and the parent's later unmount misses it", async () => {
@@ -326,14 +327,16 @@ describe("destroy during an ancestor's destroy", () => {
             providers: [
                 {
                     provide: Symbol("self-destructing"),
-                    useFactory: (owner: Module) => ({
-                        onModuleDestroy: async () => {
-                            log.push("R:enter")
-                            await owner.destroy()
-                            log.push("R:exit")
-                        },
-                    }),
-                    inject: [Module],
+                    useFactory: () => {
+                        const owner = inject(Module)
+                        return {
+                            onModuleDestroy: async () => {
+                                log.push("R:enter")
+                                await owner.destroy()
+                                log.push("R:exit")
+                            },
+                        }
+                    },
                 },
             ],
         })

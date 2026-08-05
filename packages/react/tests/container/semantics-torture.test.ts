@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { Container, Scope, inject } from "@remodulo/container"
+import { Container, Scope, inject, injectOptional } from "@remodulo/container"
 import type { Constructor, InjectionToken } from "@remodulo/container"
 import type { Provider } from "../../src/core/provider/provider.types.js"
 import { App, Module } from "../../src/core/module/module.js"
@@ -293,10 +293,10 @@ describe("provider forms through a module", () => {
         const Shorthand = instrumented("Shorthand", log)
         const Implementation = instrumented("Implementation", log)
         const value = { kind: "value" }
-        const factory = vi.fn((config: unknown, dependency: unknown, missing: unknown) => ({
-            config,
-            dependency,
-            missing,
+        const factory = vi.fn(() => ({
+            config: inject(USE_VALUE),
+            dependency: inject(USE_CLASS),
+            missing: injectOptional(ABSENT),
         }))
 
         const module = makeApp({
@@ -304,11 +304,7 @@ describe("provider forms through a module", () => {
                 Shorthand,
                 { provide: USE_CLASS, useClass: Implementation } as Provider,
                 { provide: USE_VALUE, useValue: value },
-                {
-                    provide: USE_FACTORY,
-                    useFactory: factory,
-                    inject: [USE_VALUE, USE_CLASS, { token: ABSENT, optional: true }],
-                } as Provider,
+                { provide: USE_FACTORY, useFactory: factory } as Provider,
                 { provide: ALIAS, useExisting: USE_CLASS },
             ],
         })
@@ -321,7 +317,7 @@ describe("provider forms through a module", () => {
         expect(implementation).toBeInstanceOf(Implementation)
         expect(module.container.resolve(USE_VALUE)).toBe(value)
 
-        // Factory deps arrive in declaration order; the optional miss arrives as undefined rather than throwing.
+        // The body's reads run in source order; the optional miss reads undefined rather than throwing.
         expect(built.config).toBe(value)
         expect(built.dependency).toBe(implementation)
         expect(built.missing).toBeUndefined()
@@ -390,8 +386,7 @@ describe("shadowing across three module levels", () => {
         // Stands in for a component at that level: a plain holder, no hooks, so it joins no lifecycle.
         const consumer = (token: symbol): Provider => ({
             provide: token,
-            useFactory: (service: Instance) => ({ service }),
-            inject: [TOKEN],
+            useFactory: () => ({ service: inject<Instance>(TOKEN) }),
         })
 
         const root = makeApp({
@@ -696,8 +691,10 @@ describe("circular dependencies", () => {
                 // container, which is how the factory reaches back for the late resolve.
                 {
                     provide: GET_BETA,
-                    useFactory: (owner: Module) => () => owner.container.resolve(Beta),
-                    inject: [Module],
+                    useFactory: () => {
+                        const owner = inject(Module)
+                        return () => owner.container.resolve(Beta)
+                    },
                 } as Provider,
             ],
         })

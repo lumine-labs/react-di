@@ -39,7 +39,7 @@ import {
     Container,
     Module,
     ModuleProvider,
-    ModuleRegistry,
+    ModuleTraversal,
     PropsRef,
     Ref,
     RefMap,
@@ -83,7 +83,6 @@ import type {
     EntryMetadata,
     EntrySnapshot,
     ExistingProvider,
-    FactoryDependency,
     FactoryProvider,
     Feature,
     Frame,
@@ -93,8 +92,6 @@ import type {
     ModuleHooks,
     ModuleParams,
     ModuleProviderProps,
-    MultiFactoryDependency,
-    OptionalFactoryDependency,
     PropsAdapter,
     Provider,
     ProviderInput,
@@ -301,7 +298,7 @@ class UserStore implements ProviderLifecycle {
 // the module instance and its container directly.
 class Diagnostics {
     private readonly module = inject(Module)
-    private readonly registry = inject(ModuleRegistry)
+    private readonly traversal = inject(ModuleTraversal)
     private readonly resolver = inject(Resolver)
     private readonly logger = injectOptional(LOGGER)
 
@@ -319,22 +316,53 @@ class Diagnostics {
         const children = this.module.children
         type _ModuleChildren = Expect<Equals<typeof children, ReadonlySet<Module>>>
 
-        // A declared snapshot, not the providers themselves — one entry per registration.
-        // `ProviderSnapshot` is deliberately NOT on the public surface, so the shape is pinned through
-        // the token it carries.
-        const declared = this.module.providers
-        type _ModuleProvidersIsNotAny = Expect<Not<IsAny<typeof declared>>>
-        const declaredToken = declared[0]?.token
-        type _ProviderSnapshotToken = Expect<Equals<typeof declaredToken, InjectionToken | undefined>>
+        // Read-only on the way out: the tree is edited through `addChild`/`removeChild`, which is where
+        // the lifecycle's attach/detach bookkeeping lives. A raw `Set` field would hand both away.
+        // @ts-expect-error a ReadonlySet has no `add`.
+        children.add(this.module)
+        // @ts-expect-error and no `delete` either.
+        children.delete(this.module)
+
+        // …and the pair itself is off the published type. Both are `@internal`, which `stripInternal`
+        // turns into absence in the emitted `.d.ts` — so the only way to edit the tree from out here is
+        // to not edit the tree. These two directives are what a dropped `@internal` tag fails against:
+        // lose the tag, the member returns, the expected error never happens, and the directive becomes
+        // the error. This file is the only gate that catches that, because it is the only one compiled
+        // against the stripped declarations rather than against `src`.
+        // @ts-expect-error `addChild` is internal and stripped from the published declarations.
+        this.module.addChild(this.module)
+        // @ts-expect-error `removeChild` likewise.
+        this.module.removeChild(this.module)
+
+        // Two access paths, one object: the field for code already holding a module, the injected token
+        // for services. The `toBe` half is a runtime fact the tests own; what is pinned here is that both
+        // paths are typed `ModuleTraversal` and neither has widened.
+        const ownTraversal = this.module.traversal
+        type _ModuleTraversalField = Expect<Equals<typeof ownTraversal, ModuleTraversal>>
+        type _ModuleTraversalFieldIsNotAny = Expect<Not<IsAny<typeof ownTraversal>>>
+        type _InjectedMatchesField = Expect<Equals<typeof ownTraversal, typeof this.traversal>>
+
+        // The declared provider snapshot is GONE — deleted, not hidden. It was a second view of what
+        // `container.registrations()` already answers, and answers better: the entries down in the
+        // container section carry the scope the registration defaulted and the metadata it wrote, where
+        // the declared copy could only repeat the provider literal. `ProviderSnapshot` went with it.
+        // @ts-expect-error `providers` no longer exists on Module — ask the container instead.
+        void this.module.providers
 
         const initialized = this.module.initialized
         type _ModuleInitialized = Expect<Equals<typeof initialized, boolean>>
 
-        const claimed = this.module.claimed
-        type _ModuleClaimed = Expect<Equals<typeof claimed, boolean>>
-
         const mounted = this.module.mounted
         type _ModuleMounted = Expect<Equals<typeof mounted, boolean>>
+
+        // The end-state read a consumer is meant to have. `claimed` — the mid-destroy bookkeeping behind
+        // it — is `@internal` and stripped, so this is the only way to ask from out here.
+        const destroyed = this.module.destroyed
+        type _ModuleDestroyed = Expect<Equals<typeof destroyed, boolean>>
+        type _ModuleDestroyedIsNotAny = Expect<Not<IsAny<typeof destroyed>>>
+
+        // @ts-expect-error `claimed` is internal and stripped; `destroyed` is the published question.
+        void this.module.claimed
 
         const store = this.resolver.resolve(UserStore)
         type _ResolverResolve = Expect<Equals<typeof store, UserStore>>
@@ -370,54 +398,58 @@ class Diagnostics {
         return [
             id,
             String(children.size),
-            String(declared.length),
             String(initialized),
-            String(claimed),
             String(mounted),
+            String(destroyed),
             store.userId,
             maybeLogger ? "y" : "n",
             String(allPlugins.length),
             this.logger ? "y" : "n",
-            String(declaredToken),
             String(loggerOrLazy),
             this.walk(),
         ].join("/")
     }
 
-    // ModuleRegistry is the module tree, exposed as containers.
+    // ModuleTraversal is the module tree, exposed as modules — never as containers. A caller that wants
+    // the container of a node reaches it through `module.container`, which is the only access path.
     walk(): string {
-        const parent = this.registry.parent()
-        type _RegistryParent = Expect<Equals<typeof parent, Container | null>>
+        const parent = this.traversal.parent()
+        type _TraversalParent = Expect<Equals<typeof parent, Module | null>>
 
-        const ancestors = this.registry.ancestors()
-        type _RegistryAncestors = Expect<Equals<typeof ancestors, Container[]>>
+        const ancestors = this.traversal.ancestors()
+        type _TraversalAncestors = Expect<Equals<typeof ancestors, Module[]>>
 
-        const root = this.registry.findRoot()
-        type _RegistryFindRoot = Expect<Equals<typeof root, Container>>
-        type _RegistryFindRootIsNotNullable = Expect<Not<Equals<typeof root, Container | null>>>
+        const root = this.traversal.findRoot()
+        type _TraversalFindRoot = Expect<Equals<typeof root, Module>>
+        type _TraversalFindRootIsNotNullable = Expect<Not<Equals<typeof root, Module | null>>>
 
-        const children = this.registry.children()
-        type _RegistryChildren = Expect<Equals<typeof children, Container[]>>
+        const children = this.traversal.children()
+        type _TraversalChildren = Expect<Equals<typeof children, Module[]>>
 
-        const descendants = this.registry.descendants()
-        type _RegistryDescendants = Expect<Equals<typeof descendants, Container[]>>
+        const descendants = this.traversal.descendants()
+        type _TraversalDescendants = Expect<Equals<typeof descendants, Module[]>>
 
-        const byId = this.registry.findAncestorById("app-root")
-        type _RegistryFindAncestorById = Expect<Equals<typeof byId, Container | null>>
+        const byId = this.traversal.findAncestorById("app-root")
+        type _TraversalFindAncestorById = Expect<Equals<typeof byId, Module | null>>
 
-        const descendantById = this.registry.findDescendantById("user")
-        type _RegistryFindDescendantById = Expect<Equals<typeof descendantById, Container | null>>
+        const descendantById = this.traversal.findDescendantById("user")
+        type _TraversalFindDescendantById = Expect<Equals<typeof descendantById, Module | null>>
 
-        const owner = this.registry.findAncestorByProvider(CONFIG)
-        type _RegistryFindAncestorByProvider = Expect<Equals<typeof owner, Container | null>>
+        const owner = this.traversal.findAncestorByProvider(CONFIG)
+        type _TraversalFindAncestorByProvider = Expect<Equals<typeof owner, Module | null>>
 
-        const holders = this.registry.findDescendantsByProvider(PLUGIN)
-        type _RegistryFindDescendantsByProvider = Expect<Equals<typeof holders, Container[]>>
+        const holders = this.traversal.findDescendantsByProvider(PLUGIN)
+        type _TraversalFindDescendantsByProvider = Expect<Equals<typeof holders, Module[]>>
+
+        // `module.container` is the access path the traversal no longer hands out directly, so it has to
+        // still be a `Container` here — a widening on either side shows up as this assertion failing.
+        const rootContainer = root.container
+        type _TraversalRootContainer = Expect<Equals<typeof rootContainer, Container>>
 
         return [
             parent ? "p" : "-",
             String(ancestors.length),
-            String(root.isRegistered(CONFIG)),
+            String(rootContainer.isRegistered(CONFIG)),
             String(children.length),
             String(descendants.length),
             byId ? "y" : "n",
@@ -646,20 +678,20 @@ const valueProvider: ValueProvider<AppConfig> = {
     useValue: { baseUrl: "https://api.example.com", retries: 2 },
 }
 
-// 4. factory provider, with `inject` (a required and an optional dependency). The optional dependency is
-// the module instance itself — reached through the `Module` token.
-const optionalModule: OptionalFactoryDependency<Module> = { token: Module, optional: true }
-const factoryDependencies: FactoryDependency[] = [CONFIG, optionalModule, ApiClient]
+// 4. factory provider. A factory takes NO arguments and reads what it needs in its body: the body runs
+// inside the construction that asked for it, so the ambient readers work there exactly as they do in a
+// field initializer — including the optional one, here reaching the module instance itself.
 const factoryProvider: FactoryProvider<Logger> = {
     provide: LOGGER,
-    useFactory: (config: AppConfig, module?: Module) =>
-        new ConsoleLogger(`[${module?.id ?? "detached"}] ${config.baseUrl} `),
-    inject: [CONFIG, optionalModule],
+    useFactory: () => {
+        const config = inject(CONFIG)
+        const module = injectOptional(Module)
+        return new ConsoleLogger(`[${module?.id ?? "detached"}] ${config.baseUrl} `)
+    },
     scope: Scope.Singleton,
 }
 
-// A factory can also read the frame directly instead of declaring `inject`: the body runs inside the
-// construction that asked for it, so the ambient reader works there like it works in a field.
+// The same thing said in one expression, which is what most factories look like.
 const ambientFactoryProvider: FactoryProvider<Logger> = {
     provide: FEATURE_LOGGER,
     useFactory: () => new ConsoleLogger(`[${inject(CONFIG).baseUrl}] `),
@@ -747,7 +779,7 @@ void legacyRecursiveFlag
 
 // Negative space: the provider unions must stay discriminated in the emitted declarations.
 
-// @ts-expect-error a class provider has no `inject` — that field belongs to factory providers only.
+// @ts-expect-error the declarative `inject` array is gone from every form, class providers included.
 const classProviderWithInject: ClassProvider<UserStore> = { provide: UserStore, useClass: UserStore, inject: [CONFIG] }
 void classProviderWithInject
 
@@ -857,65 +889,57 @@ void multiShorthandClassProvider
 const provideLessMultiValue: Provider = { useValue: new FeaturePlugin(), multi: true }
 void provideLessMultiValue
 
-// Reaching a collection from a factory — the `inject` grammar.
+// Reaching a collection from a factory — the body, and nothing else.
 // ========================================
 //
-// An entry is a bare token or one of two NAMED object arms discriminated by `multi`, each excluding what
-// the other owns — the same diagonal the provider grammar uses, not an anonymous intersection. The arms
-// exist because `mode` is not one type here: a collection read has three modes and a single read has two,
-// so the enum `mode` is drawn from follows the discriminant.
-//
-// Note what is NOT pinned below: `useFactory` is `(...args: any[]) => T`, so the parameters are not
-// inferred from the `inject` tuple and there is no inferred-argument type to assert. Annotating them, as
-// `factoryProvider` above does, is the whole of the typing a consumer gets.
+// 0.10.0 removed the declarative `inject` array from the React layer as well as from the kernel: it was a
+// second and weaker injection mechanism — two object arms discriminated by `multi`, a per-arm `mode`
+// grammar, and a runtime router — saying what three ordinary function calls already say. `FactoryDependency`
+// and both its arms left the published type surface with it. A factory body calls `injectAll()`, and every
+// mode the collection reads have is spelled at the call site, where the read's own enum types it.
 
-const requiredDependency: OptionalFactoryDependency<Plugin> = { token: PLUGIN }
-const optionalDependency: OptionalFactoryDependency<Plugin> = { token: PLUGIN, optional: true }
-const selfDependency: OptionalFactoryDependency<Plugin> = { token: PLUGIN, mode: "self" }
-const collectionDependency: MultiFactoryDependency<Plugin> = { token: PLUGIN, multi: true }
-const chainedDependency: MultiFactoryDependency<Plugin> = { token: PLUGIN, multi: true, mode: ResolveAllMode.Chained }
-
-// All of them are `FactoryDependency`s, alongside the bare-token shorthand.
-const injectGrammar: FactoryDependency[] = [
-    PLUGIN,
-    requiredDependency,
-    optionalDependency,
-    selfDependency,
-    collectionDependency,
-    chainedDependency,
-]
-void injectGrammar
-
-// And they are accepted inline, where excess-property checking against the union does the real work.
 const collectingFactory: FactoryProvider<Plugin[]> = {
     provide: Token<Plugin[]>("consumer.plugin.snapshot"),
-    useFactory: (plugins: Plugin[]) => plugins,
-    inject: [{ token: PLUGIN, multi: true, mode: "nearest" }],
+    useFactory: () => injectAll(PLUGIN, "nearest"),
 }
 void collectingFactory
 
-// @ts-expect-error `optional` is not on the collection arm: `resolveAll` on an unregistered token reads
-// `[]`, so there is no missing state to opt into.
-const optionalCollection: FactoryDependency = { token: PLUGIN, multi: true, optional: true }
-void optionalCollection
+// The three widths, and the one that only a body read can ask for: `chained` was expressible on the array's
+// collection arm too, but the single arm never had it, and `injectAll` is now the only place it is spelled.
+const chainedCollectingFactory: FactoryProvider<Plugin[]> = {
+    provide: Token<Plugin[]>("consumer.plugin.chained"),
+    useFactory: () => injectAll(PLUGIN, ResolveAllMode.Chained),
+}
+void chainedCollectingFactory
 
-// @ts-expect-error the collection arm takes `ResolveAllMode` and nothing else.
-const bogusCollectionMode: FactoryDependency = { token: PLUGIN, multi: true, mode: "bogus" }
-void bogusCollectionMode
-
-// @ts-expect-error `chained` is the one mode the single arm cannot have — one value has nothing to
-// accumulate — and without `multi: true` this is the single arm.
-const chainedSingleDependency: FactoryDependency = { token: PLUGIN, mode: "chained" }
-void chainedSingleDependency
-
-// The same refusal reached through the provider, where the array element is what gets checked.
-const chainedInsideProvider: FactoryProvider<Plugin> = {
+const declarativeFactory: FactoryProvider<Plugin> = {
     provide: PLUGIN,
     useFactory: () => new FeaturePlugin(),
-    // @ts-expect-error `chained` on an entry with no `multi: true`.
-    inject: [{ token: PLUGIN, mode: "chained" }],
+    // @ts-expect-error the array is gone: a factory declares no dependencies, it reads them.
+    inject: [PLUGIN],
 }
-void chainedInsideProvider
+void declarativeFactory
+
+// The same refusal against the union, which is the type every params surface actually takes.
+const declarativeInUnion: Provider[] = [
+    // @ts-expect-error `inject` is an unknown property on every arm of the union now.
+    { provide: PLUGIN, useFactory: () => new FeaturePlugin(), inject: [PLUGIN] },
+]
+void declarativeInUnion
+
+// @ts-expect-error `useFactory` tightened to `() => T` in the same move: the variadic signature existed
+// only so the array had somewhere to spread into, and a declared parameter is now an error rather than a
+// function silently called with nothing.
+const parameterisedFactory: FactoryProvider<Plugin> = { provide: PLUGIN, useFactory: (plugin: Plugin) => plugin }
+void parameterisedFactory
+
+// The limit of these pins, stated rather than assumed: excess-property checking only fires on a FRESH
+// object literal, so a provider assembled into a variable first and annotated afterwards keeps the key and
+// nothing catches it. The kernel's own pins have the same gap; it is a property of the checker, not of the
+// grammar.
+const predeclaredFactory = { provide: PLUGIN, useFactory: () => new FeaturePlugin(), inject: [PLUGIN] }
+const predeclaredEscapes: Provider = predeclaredFactory
+void predeclaredEscapes
 
 // Features — provider bundles.
 // ========================================
@@ -1662,9 +1686,9 @@ void new Container().register(ROOT_FEATURE)
 // @ts-expect-error and the array form refuses it for the same reason.
 void new Container().register([ApiClient, ROOT_FEATURE])
 
-// The two provider vocabularies are NOT the same type, and that is the boundary between the packages:
-// `lazy` and `inject` are the React layer's, translated into kernel registrations before the container
-// ever sees them. A consumer that annotates with the wrong one gets away with it until it does not.
+// The two provider vocabularies are NOT the same type, and that is the boundary between the packages —
+// though it is a much thinner boundary than 0.9's: React's forms are now DERIVED from the kernel's, and
+// `lazy` is the only key it still adds, translated into kernel metadata before the container ever sees it.
 type _ReactProviderIsNotKernelProvider = Expect<Not<Equals<Provider, KernelProvider>>>
 
 // The frame, as a type. Nothing hands one to a consumer — `inject()` reads it — but it is on the
@@ -1774,7 +1798,7 @@ const publicValueSurface = [
     useResolveOptional,
     useResolveAll,
     usePropsRef,
-    ModuleRegistry,
+    ModuleTraversal,
     Resolver,
     PropsRef,
     Ref,
@@ -1788,6 +1812,12 @@ const publicValueSurface = [
 // `injectAll`, `injectContainer`, `runInInjectionContext`) plus `useModule`, which was internal until a
 // consumer had a reason to hold the module instance rather than the whole context value. The count is
 // the same number for a completely different surface, so the LIST is what carries the meaning here.
+//
+// Still 31 after `ModuleRegistry` became `ModuleTraversal`: a rename plus a return-type change, not an
+// arrival or a departure. `ModuleLifecycle` never counted here either way — it was only ever reachable
+// through the `./core` entry, and it is now off that too: the module registers it under a token this
+// package does not export, so there is no longer a name to resolve it by from out here. It is still the
+// fourth system provider in the container; what changed is that the key is unspellable.
 type _PublicValueSurfaceSize = Expect<Equals<typeof publicValueSurface.length, 31>>
 
 // The `./types` subpath must carry the entire public type surface. Every exported name is referenced
@@ -1801,13 +1831,10 @@ type PublicTypeSurface = [
     EntryMetadata,
     EntrySnapshot,
     ExistingProvider<Logger>,
-    FactoryDependency,
     FactoryProvider<Logger>,
     Feature,
     Frame,
     InjectionToken<AppConfig>,
-    MultiFactoryDependency<Plugin>,
-    OptionalFactoryDependency<AppConfig>,
     Provider,
     ProviderInput,
     RequestCache,
@@ -1833,14 +1860,19 @@ type PublicTypeSurface = [
     TokenOptions,
     Tokenizer,
 ]
-// 32 -> 39 on the 0.10.0 kernel rework, and all seven arrivals are kernel types the React package
-// re-exports rather than anything React grew. Six are the registration/observation vocabulary a
-// consumer meets the moment it reads a container it got from `useContainer()`: `EntrySnapshot` and its
-// two arms `BindingEntrySnapshot` / `AliasEntrySnapshot`, the `EntryMetadata` bag they carry, and
-// `Frame` / `RequestCache`, which name what an ambient read is reading. The seventh is `Scope`, which
-// was on the root entry alone in 0.9 — a types-only consumer annotating a provider literal had to reach
-// into `.` for it, which is exactly the reach this subpath exists to remove.
-type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 39>>
+// 32 -> 39 -> 36 across 0.10.0. The seven arrivals were kernel types the React package re-exports rather
+// than anything React grew: the registration/observation vocabulary a consumer meets the moment it reads a
+// container it got from `useContainer()` (`EntrySnapshot` and its two arms `BindingEntrySnapshot` /
+// `AliasEntrySnapshot`, the `EntryMetadata` bag they carry, and `Frame` / `RequestCache`), plus `Scope`,
+// which was on the root entry alone in 0.9. The three departures are the whole of the declarative
+// `inject` array's vocabulary — `FactoryDependency` and its two arms `OptionalFactoryDependency` /
+// `MultiFactoryDependency` — which the ambient readers replaced without needing a type of their own.
+//
+// Still 36 after `ProviderSnapshot` was deleted: that type lived on the `./core` entry alone and was
+// never nameable from `.` or `./types`, so its departure cannot show up in this count. The `./core`
+// subpath is not pinned by this file at all — see the Module section above, where the deletion IS
+// caught, through the member that used to return it.
+type _PublicTypeSurfaceSize = Expect<Equals<PublicTypeSurface["length"], 36>>
 
 // The four `Enum` names in that list are the only ones a consumer imports from the ROOT as values, so the
 // claim that `./types` also carries them cannot ride on the import block above. Pinned directly instead.
@@ -1858,7 +1890,6 @@ export const consumerSurface = {
     abstractCtor,
     createOptions,
     createParams,
-    factoryDependencies,
     moduleHooks,
     moduleParams,
     providerProps,

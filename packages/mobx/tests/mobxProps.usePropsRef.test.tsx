@@ -1,13 +1,13 @@
 import { act, render, screen } from "@testing-library/react"
 import { autorun } from "mobx"
-import { App, AppProvider, createModuleComponent, PropsRef, useResolve } from "@remodulo/react"
+import { App, AppProvider, createModuleComponent, inject, PropsRef, useResolve } from "@remodulo/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useState } from "react"
 
 import { mobxProps } from "../src/mobxProps"
 
-// Fixture: a service that receives the bridged props via `useFactory` + `inject` — no decorators
-// anywhere, since @remodulo/react's toolchain here cannot parse parameter decorators.
+// Fixture: a service whose factory body reads the bridged props with `inject()` — no decorators
+// anywhere.
 // ========================================
 
 type Coords = { x: number; y: number }
@@ -21,7 +21,7 @@ const adapter = mobxProps<Coords>()
 
 const TrackerModule = createModuleComponent<Coords>(
     {
-        providers: [{ provide: Tracker, useFactory: (ref: PropsRef<Coords>) => new Tracker(ref), inject: [PropsRef] }],
+        providers: [{ provide: Tracker, useFactory: () => new Tracker(inject<PropsRef<Coords>>(PropsRef)) }],
     },
     { propsAdapter: adapter }
 )

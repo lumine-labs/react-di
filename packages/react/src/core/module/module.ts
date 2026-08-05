@@ -1,13 +1,17 @@
-import { Container, type InjectionToken, type Scope } from "@remodulo/container"
+import { Container } from "@remodulo/container"
 
 import { flattenProviders, type ProviderInput } from "../feature/feature.js"
 import { registerProviders } from "../provider/provider.js"
 import type { Provider } from "../provider/provider.types.js"
 import type { ModuleHook, ModuleHooks } from "../providers/module-lifecycle/module-lifecycle.types.js"
 import { ModuleLifecycle } from "../providers/module-lifecycle/module-lifecycle.provider.js"
-import { ModuleRegistry } from "../providers/module-registry/module-registry.provider.js"
+import { LIFECYCLE } from "../providers/module-lifecycle/module-lifecycle.token.js"
+import { ModuleTraversal } from "../providers/module-traversal/module-traversal.provider.js"
 import { Resolver } from "../providers/resolver/resolver.provider.js"
 import { id } from "./id.js"
+
+const childOfUninitializedParent =
+    "Cannot create a child module from an un-initialized parent — its lifecycle is not armed yet, so instances would leak. Init the parent first."
 
 // Params
 // ========================================
@@ -22,28 +26,18 @@ export type ModuleParams = {
     onModuleDestroy?: ModuleHook
 }
 
-/** Declared shape of a registered provider — what lifecycle collection reads, not the provider itself. */
-export type ProviderSnapshot = {
-    token: InjectionToken
-    scope?: Scope // absent = singleton
-    lazy?: true
-    aliasOf?: InjectionToken // useExisting target
-    multi?: true // one of several contributions to a collection; the token repeats
-}
-
 // Module
 // ========================================
 
 export class Module {
     readonly id: string
     readonly container: Container
-    readonly parent: Module | null
 
+    readonly parent: Module | null
     readonly #children = new Set<Module>()
-    #providers: readonly ProviderSnapshot[] = []
+    readonly traversal: ModuleTraversal
 
     readonly #lifecycle: ModuleLifecycle
-    readonly #hooks: ModuleHooks
 
     constructor(parent: Module | null, params?: ModuleParams) {
         if (parent && !parent.initialized) {
@@ -54,34 +48,29 @@ export class Module {
         this.container = parent ? parent.container.fork() : new Container()
         this.id = params?.id ?? id()
 
-        const resolver = new Resolver(this.container)
-        const registry = new ModuleRegistry(this)
-        this.#lifecycle = new ModuleLifecycle(this, registry)
+        const { onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy } = params ?? {}
+        const hooks: ModuleHooks = { onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy }
 
-        // `{ provide: Module, useValue: this }` is the ugly-path replacement: injecting Module reaches the
-        // container and this instance directly, where injecting ModuleMetadata used to.
+        this.traversal = new ModuleTraversal(this)
+        this.#lifecycle = new ModuleLifecycle(this, hooks)
+
+        // System providers: the module's own machinery.
         const system: Provider[] = [
             { provide: Module, useValue: this },
-            { provide: Resolver, useValue: resolver },
-            { provide: ModuleRegistry, useValue: registry },
-            { provide: ModuleLifecycle, useValue: this.#lifecycle },
+            { provide: Resolver, useValue: new Resolver(this.container) },
+            { provide: ModuleTraversal, useValue: this.traversal },
+            { provide: LIFECYCLE, useValue: this.#lifecycle },
         ]
         const user = flattenProviders(params?.providers ?? [])
-        const all = [...system, ...user]
 
-        // One pass, so a collection's `lazy` verdict is settled across system and user providers together.
-        registerProviders(this.container, all)
-        this.#setProviders(all)
-
-        const { onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy } = params ?? {}
-        this.#hooks = { onModuleInit, onModuleMount, onModuleUnmount, onModuleDestroy }
+        registerProviders(this.container, [...system, ...user])
     }
 
     // Phases
     // ========================================
 
     init(): void {
-        this.#lifecycle.init(this.#hooks)
+        this.#lifecycle.init()
     }
 
     mount(): void {
@@ -100,12 +89,17 @@ export class Module {
         return this.#lifecycle.initialized
     }
 
-    get claimed(): boolean {
-        return this.#lifecycle.claimed
-    }
-
     get mounted(): boolean {
         return this.#lifecycle.mounted
+    }
+
+    get destroyed(): boolean {
+        return this.#lifecycle.destroyed
+    }
+
+    /** @internal Mid-destroy bookkeeping: claimed but not yet drained. Consumers read `destroyed`. */
+    get claimed(): boolean {
+        return this.#lifecycle.claimed
     }
 
     // Children
@@ -115,35 +109,14 @@ export class Module {
         return this.#children
     }
 
+    /** @internal Attach point for the lifecycle's commit. Consumers read `children`. */
     addChild(child: Module): void {
         this.#children.add(child)
     }
 
+    /** @internal Detach point for the lifecycle's rollback and unlink. Consumers read `children`. */
     removeChild(child: Module): void {
         this.#children.delete(child)
-    }
-
-    // Providers
-    // ========================================
-
-    get providers(): readonly ProviderSnapshot[] {
-        return this.#providers
-    }
-
-    #setProviders(providers: Provider[]): void {
-        this.#providers = providers.map((provider) => {
-            if (typeof provider === "function") return { token: provider }
-
-            const token = provider.useClass !== undefined ? (provider.provide ?? provider.useClass) : provider.provide
-            const snapshot: ProviderSnapshot = { token }
-
-            if ("lazy" in provider && provider.lazy) snapshot.lazy = true
-            if ("useExisting" in provider) snapshot.aliasOf = provider.useExisting
-            if ("scope" in provider && provider.scope) snapshot.scope = provider.scope
-            if ("multi" in provider && provider.multi) snapshot.multi = true
-
-            return snapshot
-        })
     }
 }
 
@@ -162,6 +135,3 @@ export class App extends Module {
 
 // Errors
 // ========================================
-
-const childOfUninitializedParent =
-    "Cannot create a child module from an un-initialized parent — its lifecycle is not armed yet, so instances would leak. Init the parent first."

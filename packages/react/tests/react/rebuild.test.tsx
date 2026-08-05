@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { useState, type ReactNode } from "react"
 
 import { Container } from "@remodulo/container"
-import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"
+import { ModuleTraversal } from "../../src/core/providers/module-traversal/module-traversal.provider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useContainer, useModuleContext, useModuleRebuild } from "../../src/react/hooks/useModuleContext.js"
 import { useResolveOptional } from "../../src/react/hooks/useResolve.js"
@@ -403,7 +403,10 @@ describe("rebuild across a module tree", () => {
         await flush()
 
         expect(new Set(childContainers).size).toBe(2)
-        expect(parentContainer!.resolve(ModuleRegistry).children()).toEqual([childContainers.at(-1)])
+
+        // Traversal answers in modules; the container the probe captured is reached through `.container`.
+        const children = parentContainer!.resolve(ModuleTraversal).children()
+        expect(children.map((child) => child.container)).toEqual([childContainers.at(-1)])
     })
 
     it("cascades down two scoped levels", async () => {

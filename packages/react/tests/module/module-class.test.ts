@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest"
 import { Container } from "@remodulo/container"
 import { App, Module } from "../../src/core/module/module.js"
 import { ModuleLifecycle } from "../../src/core/providers/module-lifecycle/module-lifecycle.provider.js"
-import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"
+import { LIFECYCLE } from "../../src/core/providers/module-lifecycle/module-lifecycle.token.js"
+import { ModuleTraversal } from "../../src/core/providers/module-traversal/module-traversal.provider.js"
 import { Resolver } from "../../src/core/providers/resolver/resolver.provider.js"
-import { makeApp, phase, plain, tracked } from "../setup/helpers.js"
+import { makeApp, makeChild, phase, plain, tracked } from "../setup/helpers.js"
 
 // The Module / App classes.
 // ========================================
@@ -36,11 +37,49 @@ describe("construction", () => {
         const module = new App()
         const own = (token: Parameters<Container["isRegistered"]>[0]) => module.container.isRegistered(token, "self")
 
-        expect([own(Module), own(Resolver), own(ModuleRegistry), own(ModuleLifecycle)]).toEqual([
-            true,
-            true,
-            true,
-            true,
+        expect([own(Module), own(Resolver), own(ModuleTraversal), own(LIFECYCLE)]).toEqual([true, true, true, true])
+    })
+
+    it("registers the very lifecycle that drives the module's phases, not a second one", () => {
+        const module = makeApp()
+        const lifecycle = module.container.resolve(LIFECYCLE)
+
+        expect(lifecycle).toBeInstanceOf(ModuleLifecycle)
+        expect(lifecycle.initialized).toBe(true)
+
+        module.mount()
+        expect(lifecycle.mounted).toBe(true)
+    })
+
+    // Hooks are handed to the lifecycle at ITS construction, not at `init()`. So the lifecycle is fully
+    // armed the moment it exists, and driving the phases through the registered instance — bypassing
+    // `Module.init()`, which is now nothing but a delegating phase transition — fires them all the same.
+    // Under the old `init(hooks?)` plumbing this drive lost every module hook: no argument, no hooks.
+    it("carries the params' module hooks from construction, even when the phases are driven through it", async () => {
+        const log: string[] = []
+        const module = new App({
+            providers: [tracked(log, "svc")],
+            onModuleInit: () => log.push("module:init"),
+            onModuleMount: () => log.push("module:mount"),
+            onModuleUnmount: () => log.push("module:unmount"),
+            onModuleDestroy: () => log.push("module:destroy"),
+        })
+        const lifecycle = module.container.resolve(LIFECYCLE)
+
+        lifecycle.init()
+        lifecycle.mount()
+        lifecycle.unmount()
+        await lifecycle.destroy()
+
+        expect(log.filter((entry) => !entry.endsWith(":ctor"))).toEqual([
+            "module:init",
+            "svc:init",
+            "module:mount",
+            "svc:mount",
+            "svc:unmount",
+            "module:unmount",
+            "svc:destroy",
+            "module:destroy",
         ])
     })
 
@@ -49,8 +88,7 @@ describe("construction", () => {
 
         expect(module.container.resolve(Module)).toBe(module)
         expect(module.container.resolve(Resolver).resolve(Module)).toBe(module)
-        expect(module.container.resolve(ModuleRegistry)).toBeInstanceOf(ModuleRegistry)
-        expect(module.container.resolve(ModuleLifecycle)).toBeInstanceOf(ModuleLifecycle)
+        expect(module.container.resolve(ModuleTraversal)).toBeInstanceOf(ModuleTraversal)
     })
 
     it("registers user providers alongside the system ones", () => {
@@ -110,6 +148,41 @@ describe("init", () => {
     })
 })
 
+// `children` is a live `Set` underneath, so the guarantee is entirely in the type: the mutators are not on
+// it. Checked by `typecheck:tests`, and again against the published declarations in the consumer fixtures.
+// Nothing here is ever called.
+function childrenRefusesMutation(module: Module, child: Module): void {
+    // @ts-expect-error a ReadonlySet has no `add`.
+    module.children.add(child)
+    // @ts-expect-error and no `delete` either.
+    module.children.delete(child)
+}
+void childrenRefusesMutation
+
+describe("children", () => {
+    it("attaches and detaches through addChild/removeChild", () => {
+        const parent = makeApp({ id: "parent" })
+        const child = new Module(parent, { id: "child" })
+
+        parent.addChild(child)
+        expect([...parent.children]).toEqual([child])
+
+        parent.removeChild(child)
+        expect(parent.children.size).toBe(0)
+    })
+
+    it("is the very set the module keeps, not a copy taken per read", () => {
+        const parent = makeApp({ id: "parent" })
+        const view = parent.children
+        const child = new Module(parent, { id: "child" })
+
+        parent.addChild(child)
+
+        expect(view.has(child)).toBe(true)
+        expect(parent.children).toBe(view)
+    })
+})
+
 describe("state getters", () => {
     it("tracks initialized and mounted across the phases", async () => {
         const module = makeApp()
@@ -125,6 +198,47 @@ describe("state getters", () => {
 
         await module.destroy()
         expect(module.mounted).toBe(false)
+    })
+
+    // `destroyed` is the public end-state read; `claimed` is the mid-destroy bookkeeping behind it and is
+    // now `@internal`. The two differ only inside `destroy()`, which is why the flag flips before the await.
+    it("reports destroyed only once destroy has resolved", async () => {
+        const module = makeApp()
+
+        expect(module.destroyed).toBe(false)
+
+        const destroying = module.destroy()
+        await destroying
+
+        expect(module.destroyed).toBe(true)
+    })
+
+    it("stays destroyed across a repeated destroy", async () => {
+        const module = makeApp()
+
+        await module.destroy()
+        await module.destroy()
+
+        expect(module.destroyed).toBe(true)
+    })
+
+    // Children link into the tree at mount, so the whole tree is mounted before the destroy — an
+    // un-mounted child is not reachable from its parent and would not be claimed at all.
+    it("covers the claimed subtree and stops at it", async () => {
+        const root = makeApp()
+        const kept = makeChild(root)
+        const doomed = makeChild(root)
+        const grandchild = makeChild(doomed)
+
+        grandchild.mount()
+        doomed.mount()
+        kept.mount()
+        root.mount()
+
+        await doomed.destroy()
+
+        expect([doomed.destroyed, grandchild.destroyed]).toEqual([true, true])
+        expect([root.destroyed, kept.destroyed]).toEqual([false, false])
     })
 })
 

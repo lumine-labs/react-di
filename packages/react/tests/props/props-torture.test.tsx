@@ -6,6 +6,7 @@ import { createModuleComponent } from "../../src/react/factories/createModuleCom
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { PropsRef, type PropsAdapter } from "../../src/core/providers/props-ref/props-ref.provider.js"
 import { useResolve } from "../../src/react/hooks/useResolve.js"
+import { inject } from "@remodulo/container"
 import type { InjectionToken } from "@remodulo/container"
 import { Root } from "../setup/react.js"
 
@@ -58,11 +59,7 @@ describe("PropsRef is readable from the earliest possible point", () => {
 
     const ReaderModule = createModuleComponent<UserProps>({
         providers: [
-            {
-                provide: EarlyReader,
-                useFactory: (ref: PropsRef<UserProps>) => new EarlyReader(ref),
-                inject: [PropsRef],
-            },
+            { provide: EarlyReader, useFactory: () => new EarlyReader(inject<PropsRef<UserProps>>(PropsRef)) },
         ],
         onModuleInit: (container) => {
             const ref = container.resolve(PropsRef) as PropsRef<UserProps>
@@ -594,12 +591,11 @@ describe("PropsRef across a module rebuild", () => {
         providers: [
             {
                 provide: LeakyService,
-                useFactory: (ref: PropsRef<UserProps>) => {
-                    const service = new LeakyService(ref)
+                useFactory: () => {
+                    const service = new LeakyService(inject<PropsRef<UserProps>>(PropsRef))
                     instances.push(service)
                     return service
                 },
-                inject: [PropsRef],
             },
         ],
     }))
@@ -712,12 +708,11 @@ describe("PropsRef and the documented remedy (off() in onModuleDestroy)", () => 
         providers: [
             {
                 provide: TidyService,
-                useFactory: (ref: PropsRef<UserProps>) => {
-                    const service = new TidyService(ref)
+                useFactory: () => {
+                    const service = new TidyService(inject<PropsRef<UserProps>>(PropsRef))
                     instances.push(service)
                     return service
                 },
-                inject: [PropsRef],
             },
         ],
     }))

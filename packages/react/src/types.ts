@@ -23,10 +23,7 @@ export type {
 export type {
     ClassProvider,
     ExistingProvider,
-    FactoryDependency,
     FactoryProvider,
-    MultiFactoryDependency,
-    OptionalFactoryDependency,
     Provider,
     SelfClassProvider,
     TokenClassProvider,

@@ -17,37 +17,50 @@ reactivity-agnostic; this is where the two libraries meet.
 npm install @remodulo/mobx
 ```
 
-Peers: `@remodulo/react`, `mobx` `^6.0.0`, `react` `^18.0.0 || ^19.0.0`.
+Peers: `@remodulo/react` `^0.10.0`, `mobx` `^6.0.0`, `react` `^18.0.0 || ^19.0.0`. No `reflect-metadata`, no
+decorators, no compiler flags — dependencies arrive as `inject()` fields, exactly as in the core.
 
 ## Example
 
 ```tsx
 import { ViewModel, makeInheritedAutoObservable, mobxProps } from "@remodulo/mobx"
-import { Injectable, PropsRef, createModuleComponent } from "@remodulo/react"
-import { autorun } from "mobx"
+import { PropsRef, Token, createModuleComponent, inject } from "@remodulo/react"
+import { autorun, runInAction } from "mobx"
 
 type ChartProps = { series: string; window: number }
 
-@Injectable()
+class ChartPropsRef extends PropsRef<ChartProps> {}
+
+const TApiClient = Token<{ points(series: string, window: number): Promise<number[]> }>("ApiClient")
+
 class ChartStore extends ViewModel {
     points: number[] = []
 
-    constructor(private readonly props: PropsRef<ChartProps>) {
+    private readonly props = inject(ChartPropsRef)
+    private readonly api = inject(TApiClient)
+
+    constructor() {
         super()
-        makeInheritedAutoObservable(this, {}, { autoBind: true })
-        this.track(autorun(() => this.refetch(this.props.current.window)))
+        makeInheritedAutoObservable(this, { props: false, api: false }, { autoBind: true })
+        this.track(autorun(() => void this.refetch()))
     }
 
-    private refetch(_window: number): void {}
+    private async refetch(): Promise<void> {
+        const { series, window } = this.props.current
+        const points = await this.api.points(series, window)
+        runInAction(() => (this.points = points))
+    }
 }
 
 export const ChartModule = createModuleComponent<ChartProps>(
     { providers: [ChartStore] },
-    { propsAdapter: mobxProps<ChartProps>() }
+    { propsAdapter: mobxProps<ChartProps>(), propsToken: ChartPropsRef }
 )
 ```
 
-The store reads its props inside a reaction and never hears about React at all.
+The store reads its props inside a reaction and never hears about React at all. The `PropsRef` subclass is
+what types them: `propsToken` registers the bridged observable under `ChartPropsRef`, so
+`inject(ChartPropsRef)` returns a ref whose `current` is `ChartProps` and not `unknown`.
 
 - **`mobxProps()`** — a `PropsAdapter` that mints one shallow observable and mutates it in place on every
   real props change, inside a `runInAction`. The identity never changes, so reactions stay attached. Keys the
@@ -56,7 +69,8 @@ The store reads its props inside a reaction and never hears about React at all.
   `onModuleDestroy`. It does **no** MobX annotation of its own; annotate in your own constructor.
 - **`makeInheritedAutoObservable(target, overrides?, options?)`** — MobX's own
   [refuses any class with a superclass](https://mobx.js.org/subclassing.html#limitations); this walks the
-  prototype chain instead. Call it exactly once per instance, in the most derived constructor.
+  prototype chain instead. Call it exactly once per instance, in the most derived constructor. Injected
+  collaborators are just fields, so exclude them with `false`.
 
 > ⚠️ With the call in a **base** constructor, a subclass's own **fields** are never observable —
 > JavaScript initialises them after `super()` returns. Methods and getters are fine at every level. This

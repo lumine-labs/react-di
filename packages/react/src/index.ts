@@ -32,7 +32,7 @@ export { usePropsRef } from "./react/hooks/usePropsRef.js"
 // System providers
 // ========================================
 
-export { ModuleRegistry } from "./core/providers/module-registry/module-registry.provider.js"
+export { ModuleTraversal } from "./core/providers/module-traversal/module-traversal.provider.js"
 export { Resolver } from "./core/providers/resolver/resolver.provider.js"
 export { PropsRef } from "./core/providers/props-ref/props-ref.provider.js"
 

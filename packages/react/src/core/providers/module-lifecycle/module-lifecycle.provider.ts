@@ -1,8 +1,8 @@
 import { Scope, type EntrySnapshot, type InjectionToken } from "@remodulo/container"
 
+import { LIFECYCLE } from "./module-lifecycle.token.js"
 import type { ModuleHooks, ProviderLifecycle } from "./module-lifecycle.types.js"
 import type { Module } from "../../module/module.js"
-import type { ModuleRegistry } from "../module-registry/module-registry.provider.js"
 import { isLazyMetadata } from "../../provider/provider.js"
 
 // ModuleLifecycle
@@ -18,13 +18,16 @@ export class ModuleLifecycle {
     #committed = false
     #mounted = false
 
-    #moduleHooks: ModuleHooks = {}
+    #moduleHooks: ModuleHooks
     #instances = new Set<ProviderLifecycle>()
 
+    // Hooks are birth configuration, not a phase argument: they arrive with the module that owns them.
     constructor(
         private readonly module: Module,
-        private readonly registry: ModuleRegistry
-    ) {}
+        hooks?: ModuleHooks
+    ) {
+        this.#moduleHooks = hooks ?? {}
+    }
 
     get initialized(): boolean {
         return this.#initialized
@@ -34,6 +37,10 @@ export class ModuleLifecycle {
         return this.#claimed
     }
 
+    get destroyed(): boolean {
+        return this.#destroyed
+    }
+
     get mounted(): boolean {
         return this.#mounted
     }
@@ -41,9 +48,8 @@ export class ModuleLifecycle {
     // Phases
     // ========================================
 
-    init(hooks?: ModuleHooks): void {
+    init(): void {
         if (this.#initialized || this.#destroyed) return
-        this.#moduleHooks = hooks ?? {}
 
         this.#runInitPhase()
 
@@ -54,7 +60,7 @@ export class ModuleLifecycle {
         if (!this.#initialized || this.#destroyed) return
         if (this.#committed) return
 
-        this.registry.attach()
+        this.module.parent?.addChild(this.module)
         this.#committed = true
 
         try {
@@ -64,7 +70,7 @@ export class ModuleLifecycle {
                 this.#mountTree()
             }
         } catch (error) {
-            this.registry.detach()
+            this.module.parent?.removeChild(this.module)
             this.#committed = false
 
             throw error
@@ -192,7 +198,7 @@ export class ModuleLifecycle {
         }
 
         this.#claimed = true
-        this.registry.detach()
+        this.module.parent?.removeChild(this.module)
 
         this.#committed = false
         this.#mounted = false
@@ -204,7 +210,7 @@ export class ModuleLifecycle {
     #children(): ModuleLifecycle[] {
         const children: ModuleLifecycle[] = []
         for (const child of this.module.children) {
-            const lifecycle = child.container.resolveOptional(ModuleLifecycle, "self")
+            const lifecycle = child.container.resolveOptional(LIFECYCLE, "self")
             if (lifecycle) children.push(lifecycle)
         }
         return children

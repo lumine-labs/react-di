@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest"
 
-import { Container, ResolveAllMode, Scope, injectAll } from "@remodulo/container"
+import { Container, ResolveAllMode, Scope, inject, injectAll, injectOptional } from "@remodulo/container"
 import type { Constructor } from "@remodulo/container"
-import type { ClassProvider, FactoryDependency } from "../../src/core/provider/provider.types.js"
+import type {
+    ClassProvider,
+    ExistingProvider,
+    FactoryProvider,
+    Provider,
+    ValueProvider,
+} from "../../src/core/provider/provider.types.js"
 import { registerProviders } from "../../src/core/provider/provider.js"
 import { Resolver } from "../../src/core/providers/resolver/resolver.provider.js"
 import { makeApp, makeChild } from "../setup/helpers.js"
@@ -904,11 +910,11 @@ describe("injectAll parity", () => {
     })
 })
 
-describe("factory inject parity", () => {
-    // The grammar is two named arms discriminated by `multi`, and the runtime behind it is pure routing:
-    // `multi: true` is `resolveAll`, `optional` is `resolveOptional`, anything else is `resolve` — each with
-    // that read's own default mode and, crucially, that read's own errors. Nothing below asserts a
-    // behaviour of `inject`; every assertion is that `inject` has none of its own.
+describe("factory body read parity", () => {
+    // A factory body is the only route into a factory now: the declarative `inject` array is gone, and
+    // `inject` / `injectOptional` / `injectAll` are called directly from inside the construction frame.
+    // Nothing below asserts a behaviour of the factory boundary; every assertion is that it has none of
+    // its own — each read answers exactly as the same call on the container would.
 
     /** root and leaf both contribute; `bare` is a further fork that contributes nothing of its own. */
     function chain(): { root: Container; leaf: Container; bare: Container } {
@@ -921,21 +927,19 @@ describe("factory inject parity", () => {
     }
 
     /**
-     * Hand `dependency` to a factory on `container` and return what the factory received. A fresh token
-     * per call, so a container can be measured several times without forking — forking would move the
-     * read position, which is the very thing the mode tests are about.
+     * Run `read` as a factory body on `container` and return what it produced. A fresh token per call, so
+     * a container can be measured several times without forking — forking would move the read position,
+     * which is the very thing the mode tests are about.
      */
-    function injected(container: Container, dependency: FactoryDependency): unknown {
+    function injected(container: Container, read: () => unknown): unknown {
         const token = Symbol("COLLECTOR")
-        // `inject` is react's key, so the registration goes through react's path rather than the kernel's.
-        registerProviders(container, [
-            { provide: token, useFactory: (received: unknown) => received, inject: [dependency] },
-        ])
+        // Registration goes through react's door, so the factory is the one the module layer would build.
+        registerProviders(container, [{ provide: token, useFactory: read }])
 
         return container.resolve(token)
     }
 
-    /** The message a read throws, so an inject entry can be pinned against it rather than against a copy. */
+    /** The message a read throws, so a body read can be pinned against it rather than against a copy. */
     function messageOf(read: () => unknown): string {
         let message: string | undefined
         try {
@@ -951,45 +955,44 @@ describe("factory inject parity", () => {
     it("hands a factory the whole chain's collection by default", () => {
         const { leaf } = chain()
 
-        expect(injected(leaf, { token: TOKEN, multi: true })).toEqual(["leaf", "root"])
-        expect(injected(leaf, { token: TOKEN, multi: true })).toEqual(leaf.resolveAll(TOKEN))
-        expect(injected(leaf, { token: TOKEN, multi: true, mode: ResolveAllMode.Chained })).toEqual(["leaf", "root"])
+        expect(injected(leaf, () => injectAll(TOKEN))).toEqual(["leaf", "root"])
+        expect(injected(leaf, () => injectAll(TOKEN))).toEqual(leaf.resolveAll(TOKEN))
+        expect(injected(leaf, () => injectAll(TOKEN, ResolveAllMode.Chained))).toEqual(["leaf", "root"])
     })
 
     it("means by self and nearest exactly what resolveAll means by them", () => {
         const { leaf, bare } = chain()
 
-        expect(injected(leaf, { token: TOKEN, multi: true, mode: "self" })).toEqual(["leaf"])
-        expect(injected(leaf, { token: TOKEN, multi: true, mode: "nearest" })).toEqual(["leaf"])
+        expect(injected(leaf, () => injectAll(TOKEN, "self"))).toEqual(["leaf"])
+        expect(injected(leaf, () => injectAll(TOKEN, "nearest"))).toEqual(["leaf"])
 
         // The distinction the two modes exist for. `bare` declares nothing: `self` is own-only and reads
         // `[]`, `nearest` falls back to the nearest CONTRIBUTOR's own bindings — `leaf` alone, never the
         // chain above it, which is what `chained` is for.
-        expect(injected(bare, { token: TOKEN, multi: true, mode: "self" })).toEqual([])
-        expect(injected(bare, { token: TOKEN, multi: true, mode: "nearest" })).toEqual(["leaf"])
-        expect(injected(bare, { token: TOKEN, multi: true })).toEqual(["leaf", "root"])
+        expect(injected(bare, () => injectAll(TOKEN, "self"))).toEqual([])
+        expect(injected(bare, () => injectAll(TOKEN, "nearest"))).toEqual(["leaf"])
+        expect(injected(bare, () => injectAll(TOKEN))).toEqual(["leaf", "root"])
 
         for (const mode of ["self", "nearest", "chained"] as const) {
-            expect(injected(bare, { token: TOKEN, multi: true, mode })).toEqual(bare.resolveAll(TOKEN, mode))
+            expect(injected(bare, () => injectAll(TOKEN, mode))).toEqual(bare.resolveAll(TOKEN, mode))
         }
     })
 
     it("reads [] for a collection point nobody filled, rather than failing the factory", () => {
         const container = new Container()
+        const UNFILLED = Symbol("unfilled")
 
-        expect(injected(container, { token: Symbol("unfilled"), multi: true })).toEqual([])
+        expect(injected(container, () => injectAll(UNFILLED))).toEqual([])
     })
 
-    it("keeps the bare token meaning one value, nearest, required", () => {
+    it("keeps a bare read meaning one value, nearest, required", () => {
         const SINGLE = Symbol("SINGLE")
         const root = new Container()
         root.register({ provide: SINGLE, useValue: "root" })
         const child = root.fork()
 
-        expect(injected(child, SINGLE)).toBe("root")
-        expect(injected(child, { token: SINGLE })).toBe("root")
-        expect(injected(child, { token: SINGLE, mode: "nearest" })).toBe("root")
-        expect(injected(child, { token: SINGLE, optional: false })).toBe("root")
+        expect(injected(child, () => inject(SINGLE))).toBe("root")
+        expect(injected(child, () => inject(SINGLE, "nearest"))).toBe("root")
     })
 
     it("carries self onto the single reads too, throwing or not exactly as they do", () => {
@@ -998,47 +1001,43 @@ describe("factory inject parity", () => {
         root.register({ provide: SINGLE, useValue: "root" })
         const child = root.fork()
 
-        expect(injected(root, { token: SINGLE, mode: "self" })).toBe("root")
-        expect(() => injected(child, { token: SINGLE, mode: "self" })).toThrow(
+        expect(injected(root, () => inject(SINGLE, "self"))).toBe("root")
+        expect(() => injected(child, () => inject(SINGLE, "self"))).toThrow(
             messageOf(() => child.resolve(SINGLE, "self"))
         )
-        expect(injected(child, { token: SINGLE, optional: true, mode: "self" })).toBeUndefined()
+        expect(injected(child, () => injectOptional(SINGLE, "self"))).toBeUndefined()
     })
 
-    it("routes optional to the safe read, and only optional", () => {
+    it("routes the optional read to the safe read, and only that one", () => {
         const MISSING = Symbol("MISSING")
         const container = new Container()
 
-        expect(injected(container, { token: MISSING, optional: true })).toBeUndefined()
-        expect(() => injected(container, { token: MISSING })).toThrow(messageOf(() => container.resolve(MISSING)))
+        expect(injected(container, () => injectOptional(MISSING))).toBeUndefined()
+        expect(() => injected(container, () => inject(MISSING))).toThrow(messageOf(() => container.resolve(MISSING)))
     })
 
-    it("inherits the collection guard verbatim — multi: true onto a single registration", () => {
+    it("inherits the collection guard verbatim — injectAll onto a single registration", () => {
         const container = new Container()
         container.register({ provide: TOKEN, useValue: "only" })
 
-        // Not a new error about `inject`: the message `resolveAll` would have produced, unchanged.
-        expect(() => injected(container, { token: TOKEN, multi: true })).toThrow(
-            messageOf(() => container.resolveAll(TOKEN))
-        )
+        // Not a new error about the factory: the message `resolveAll` would have produced, unchanged.
+        expect(() => injected(container, () => injectAll(TOKEN))).toThrow(messageOf(() => container.resolveAll(TOKEN)))
     })
 
     it("inherits the single guard verbatim — a single read onto a collection", () => {
         const container = new Container()
         container.register({ provide: TOKEN, useValue: "a", multi: true })
-        const expected = messageOf(() => container.resolve(TOKEN))
 
-        expect(() => injected(container, TOKEN)).toThrow(expected)
-        expect(() => injected(container, { token: TOKEN })).toThrow(expected)
+        expect(() => injected(container, () => inject(TOKEN))).toThrow(messageOf(() => container.resolve(TOKEN)))
 
-        // `optional` does not soften it either — `resolveOptional` refuses a collection rather than reporting
-        // absence, and the inject entry is that call.
-        expect(() => injected(container, { token: TOKEN, optional: true })).toThrow(
+        // The optional read does not soften it either — `resolveOptional` refuses a collection rather than
+        // reporting absence, and the body read is that call.
+        expect(() => injected(container, () => injectOptional(TOKEN))).toThrow(
             messageOf(() => container.resolveOptional(TOKEN))
         )
     })
 
-    it("mixes the arms in one inject array, in order", () => {
+    it("mixes the three reads in one factory body, in order", () => {
         const { leaf } = chain()
         const SINGLE = Symbol("SINGLE")
         const MISSING = Symbol("MISSING")
@@ -1048,8 +1047,7 @@ describe("factory inject parity", () => {
         registerProviders(leaf, [
             {
                 provide: HOST,
-                useFactory: (...args: unknown[]) => args,
-                inject: [SINGLE, { token: MISSING, optional: true }, { token: TOKEN, multi: true, mode: "self" }],
+                useFactory: () => [inject(SINGLE), injectOptional(MISSING), injectAll(TOKEN, "self")],
             },
         ])
 
@@ -1057,11 +1055,13 @@ describe("factory inject parity", () => {
     })
 })
 
-// The half of the grammar no `it` can reach: what the two arms REFUSE. Checked by `npm run
+// The half of the grammar no `it` can reach: what the forms REFUSE. Checked by `npm run
 // typecheck:tests`; the same pins run against the published declarations in the consumer fixtures.
 // ========================================
 
 class Pinned {}
+
+const OTHER = Symbol("OTHER")
 
 const acceptedProviders: ClassProvider[] = [
     { provide: TOKEN, useClass: Pinned, multi: true },
@@ -1074,24 +1074,44 @@ void acceptedProviders
 const multiShorthand: ClassProvider = { useClass: Pinned, multi: true }
 void multiShorthand
 
-const acceptedDependencies: FactoryDependency[] = [
-    TOKEN,
-    { token: TOKEN },
-    { token: TOKEN, optional: true },
-    { token: TOKEN, mode: "self" },
-    { token: TOKEN, multi: true },
-    { token: TOKEN, multi: true, mode: ResolveAllMode.Chained },
+// The declarative `inject` array is gone from the react layer too, so the key is an unknown property on
+// the factory form — under the form's own name and against the union `registerProviders` takes.
+
+// @ts-expect-error a factory reads its dependencies in its body; there is no `inject` array to declare.
+const injectArrayOnFactory: FactoryProvider<string> = { provide: TOKEN, useFactory: () => "x", inject: [TOKEN] }
+void injectArrayOnFactory
+
+const injectArrayThroughTheDoor: Provider[] = [
+    // @ts-expect-error the same refusal at the registration door, where the union is what gets checked.
+    { provide: TOKEN, useFactory: () => "x", inject: [TOKEN] },
 ]
-void acceptedDependencies
+void injectArrayThroughTheDoor
 
-// @ts-expect-error a collection read cannot miss — `resolveAll` reads `[]` — so there is no optional state.
-const optionalMulti: FactoryDependency = { token: TOKEN, multi: true, optional: true }
-void optionalMulti
+// @ts-expect-error the variadic signature existed only so the array had somewhere to spread into.
+const parameterisedFactory: FactoryProvider<string> = { provide: TOKEN, useFactory: (received: string) => received }
+void parameterisedFactory
 
-// @ts-expect-error `mode` follows the discriminant, and `chained` belongs to the collection arm alone.
-const chainedSingle: FactoryDependency = { token: TOKEN, mode: "chained" }
-void chainedSingle
+// `lazy` is the one key react still adds, and only the forms that construct carry it: a value is already
+// an instance and an alias builds nothing. The union narrows on the implementation key before the
+// excess-property check runs, so the refusal survives the derivation in both spellings.
 
-// @ts-expect-error the collection arm still takes only the three modes it has.
-const bogusMulti: FactoryDependency = { token: TOKEN, multi: true, mode: "bogus" }
-void bogusMulti
+// @ts-expect-error a value provider is already an instance — there is nothing to defer.
+const lazyValue: ValueProvider<string> = { provide: TOKEN, useValue: "a", lazy: true }
+void lazyValue
+
+const lazyValueThroughTheDoor: Provider[] = [
+    // @ts-expect-error and the same through the union.
+    { provide: TOKEN, useValue: "a", lazy: true },
+]
+void lazyValueThroughTheDoor
+
+// @ts-expect-error an alias builds nothing, so it has no eager pass to skip.
+const lazyExisting: ExistingProvider<string> = { provide: TOKEN, useExisting: OTHER, lazy: true }
+void lazyExisting
+
+// The limit these pins have, stated rather than assumed: excess-property checking only fires on a FRESH
+// object literal. A provider assembled into a variable first and annotated afterwards keeps the key, and
+// no annotation catches it — the same gap the kernel's own pins have.
+const predeclared = { provide: TOKEN, useFactory: () => "x", inject: [TOKEN] }
+const predeclaredEscapes: Provider = predeclared
+void predeclaredEscapes

@@ -29,8 +29,8 @@ describe("hazard: parent Module's children set", () => {
 
         await scrub(() => childGeneration(new LeakTracker(), app), 3)
 
-        // `ModuleLifecycle.#claimSubtree` calls `registry.detach()` synchronously at the top of destroy(),
-        // which is `parent.removeChild(child)`. Without it the parent's Set would pin every dead generation.
+        // `ModuleLifecycle.#claimSubtree` calls `parent.removeChild(child)` synchronously at the top of
+        // destroy(). Without it the parent's Set would pin every dead generation.
         expect(tracker.aliveByLabel()).toEqual({})
 
         app.unmount()

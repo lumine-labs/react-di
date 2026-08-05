@@ -4,7 +4,7 @@ import { Component, Suspense, createContext, use, useContext, useState, type Rea
 
 import type { Provider } from "../../src/core/provider/provider.types.js"
 import type { Module } from "../../src/core/module/module.js"
-import { ModuleRegistry } from "../../src/core/providers/module-registry/module-registry.provider.js"
+import { ModuleTraversal } from "../../src/core/providers/module-traversal/module-traversal.provider.js"
 import { ModuleProvider } from "../../src/react/providers/ModuleProvider.js"
 import { useModuleContext } from "../../src/react/hooks/useModuleContext.js"
 import { Root } from "../setup/react.js"
@@ -443,15 +443,15 @@ describe("nested modules appearing and disappearing", () => {
         await act(async () => show(true))
         expect(child.generations).toEqual([ALIVE])
         expect([...parentModule.children]).toEqual([children[0]])
-        expect(parentModule.container.resolve(ModuleRegistry).children()).toEqual([children[0]?.container])
+        expect(parentModule.container.resolve(ModuleTraversal).children()).toEqual([children[0]])
         expect(children[0]?.parent).toBe(parentModule)
 
-        // Disappearing: detached from the parent's registry and torn all the way down.
+        // Disappearing: unlinked from the parent's children and torn all the way down.
         await act(async () => show(false))
         await flush()
         expect(child.generations).toEqual([DISPOSED])
         expect([...parentModule.children]).toEqual([])
-        expect(parentModule.container.resolve(ModuleRegistry).children()).toEqual([])
+        expect(parentModule.container.resolve(ModuleTraversal).children()).toEqual([])
 
         // Reappearing: a genuinely new child module, attached again.
         await act(async () => show(true))

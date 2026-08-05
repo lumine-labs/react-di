@@ -433,11 +433,7 @@ describe("createModuleComponent rebuilding on a props-derived key", () => {
     const UserModule = createModuleComponent<UserProps>((props) => ({
         rebuildOn: [props.userId],
         providers: [
-            {
-                provide: UserService,
-                useFactory: (ref: PropsRef<UserProps>) => new UserService(ref),
-                inject: [PropsRef],
-            },
+            { provide: UserService, useFactory: () => new UserService(inject<PropsRef<UserProps>>(PropsRef)) },
         ],
     }))
 
