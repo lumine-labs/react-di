@@ -95,13 +95,13 @@ importers:
       '@luminelabs/toolkit':
         specifier: ^0.1.1
         version: 0.1.1
-      '@remodulo/container':
-        specifier: workspace:^
-        version: link:../container
       react:
         specifier: ^18.0.0 || ^19.0.0
         version: 19.2.8
     devDependencies:
+      '@remodulo/container':
+        specifier: workspace:*
+        version: link:../container
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.10.0(@testing-library/dom@10.4.1)

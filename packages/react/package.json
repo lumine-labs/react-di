@@ -1,6 +1,6 @@
 {
     "name": "@remodulo/react",
-    "version": "0.10.0",
+    "version": "0.10.1",
     "description": "Non-reactive dependency injection library for React: modules as ownership boundaries, plain classes, no decorators.",
     "license": "MIT",
     "author": "Egor Arkhipov (Lumine Labs)",
@@ -62,14 +62,15 @@
         "prepack": "pnpm run build"
     },
     "peerDependencies": {
+        "@remodulo/container": "workspace:^",
         "react": "^18.0.0 || ^19.0.0"
     },
     "dependencies": {
         "@luminelabs/react-toolkit": "^0.1.1",
-        "@luminelabs/toolkit": "^0.1.1",
-        "@remodulo/container": "workspace:^"
+        "@luminelabs/toolkit": "^0.1.1"
     },
     "devDependencies": {
+        "@remodulo/container": "workspace:*",
         "@testing-library/jest-dom": "^6.9.1",
         "@testing-library/react": "^16.3.2",
         "@types/node": "^25.5.0",

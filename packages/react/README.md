@@ -16,14 +16,8 @@ state.
 ## Install
 
 ```sh
-npm install @remodulo/react
+npm install @remodulo/container @remodulo/react
 ```
-
-That's the whole setup. **No `reflect-metadata`, no decorators, no compiler flags** — no
-`experimentalDecorators`, no `emitDecoratorMetadata`, no Babel metadata plugin. Dependencies are plain
-classes and `inject()` calls, so any toolchain that compiles TypeScript compiles Remodulo.
-
-`react` is a peer dependency: `^18.0.0 || ^19.0.0`.
 
 ## The problem
 
